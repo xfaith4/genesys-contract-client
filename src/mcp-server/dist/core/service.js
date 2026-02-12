@@ -112,9 +112,38 @@ export class GenesysCoreService {
         const body = input.body ?? null;
         const op = this.getOp(operationId);
         this.assertContract(op, params, body);
+        const startedAt = Date.now();
+        const requestSummary = this.config.logRequestPayloads ? this.summarizeRequest(operationId, params, body) : undefined;
         const client = this.resolveClientConfig(input.client);
-        const data = await this.callOnce(client, op, params, body);
-        return { data };
+        try {
+            const data = await this.callOnce(client, op, params, body);
+            const logPayload = {
+                operationId,
+                method: op.method.toUpperCase(),
+                status: 200,
+                durationMs: Date.now() - startedAt,
+            };
+            if (requestSummary !== undefined)
+                logPayload.request = requestSummary;
+            logInfo("genesys.call", logPayload);
+            return { data };
+        }
+        catch (error) {
+            const mapped = this.mapErrorToHttp(error);
+            const logPayload = {
+                operationId,
+                method: op.method.toUpperCase(),
+                status: mapped.status,
+                error: mapped.message,
+                durationMs: Date.now() - startedAt,
+            };
+            if (requestSummary !== undefined)
+                logPayload.request = requestSummary;
+            if (mapped.details !== undefined)
+                logPayload.errorDetails = this.redactForLog(mapped.details);
+            logInfo("genesys.call", logPayload);
+            throw error;
+        }
     }
     async callAll(input) {
         const operationId = toNonEmptyString(input.operationId, "operationId");
@@ -122,179 +151,222 @@ export class GenesysCoreService {
         const body = input.body ?? null;
         const op = this.getOp(operationId);
         this.assertContract(op, params, body);
-        const pageSize = clamp(input.pageSize ?? this.config.defaultPageSize, 1, 1000);
-        const limit = clamp(input.limit ?? this.config.defaultLimit, 1, this.config.hardMaxLimit);
-        const maxPages = clamp(input.maxPages ?? this.config.defaultMaxPages, 1, this.config.hardMaxPages);
-        const maxRuntimeMs = clamp(input.maxRuntimeMs ?? this.config.defaultMaxRuntimeMs, 1000, this.config.hardMaxRuntimeMs);
-        const includeItems = input.includeItems ?? this.config.defaultIncludeItems;
-        const map = this.getPagingEntry(operationId, op);
-        const ptype = map.type;
-        const itemsPath = map.itemsPath ?? op.responseItemsPath ?? "$.entities";
-        if (ptype === "UNKNOWN") {
-            throw httpError(400, `Unknown pagination type for ${operationId}. Add to registry or regenerate.`);
-        }
-        const client = this.resolveClientConfig(input.client);
-        const items = [];
-        const audit = [];
-        const seenTokens = new Set();
-        let page = 1;
-        let next = null;
-        let cursor = null;
-        let after = null;
-        let pageNumber = 1;
-        let totalFetched = 0;
         const startedAt = Date.now();
-        while (true) {
-            if (Date.now() - startedAt > maxRuntimeMs) {
-                audit.push({ page, stop: "maxRuntimeMs", maxRuntimeMs });
-                break;
+        const requestSummary = this.config.logRequestPayloads ? this.summarizeRequest(operationId, params, body) : undefined;
+        try {
+            const pageSize = clamp(input.pageSize ?? this.config.defaultPageSize, 1, 1000);
+            const limit = clamp(input.limit ?? this.config.defaultLimit, 1, this.config.hardMaxLimit);
+            const maxPages = clamp(input.maxPages ?? this.config.defaultMaxPages, 1, this.config.hardMaxPages);
+            const maxRuntimeMs = clamp(input.maxRuntimeMs ?? this.config.defaultMaxRuntimeMs, 1000, this.config.hardMaxRuntimeMs);
+            const includeItems = input.includeItems ?? this.config.defaultIncludeItems;
+            const map = this.getPagingEntry(operationId, op);
+            const ptype = map.type;
+            const itemsPath = map.itemsPath ?? op.responseItemsPath ?? "$.entities";
+            if (ptype === "UNKNOWN") {
+                throw httpError(400, `Unknown pagination type for ${operationId}. Add to registry or regenerate.`);
             }
-            if (page > maxPages) {
-                audit.push({ page, stop: "maxPages", maxPages });
-                break;
-            }
-            const localParams = { ...params };
-            let localBody = body;
-            if (ptype === "PAGE_NUMBER" || ptype === "TOTALHITS") {
-                if (op.parameters.some((p) => p.in === "query" && p.name === "pageNumber")) {
-                    localParams.pageNumber = pageNumber;
-                    localParams.pageSize = pageSize;
+            const client = this.resolveClientConfig(input.client);
+            const items = [];
+            const audit = [];
+            const seenTokens = new Set();
+            let page = 1;
+            let next = null;
+            let cursor = null;
+            let after = null;
+            let pageNumber = 1;
+            let totalFetched = 0;
+            const pagingStartedAt = Date.now();
+            while (true) {
+                if (Date.now() - pagingStartedAt > maxRuntimeMs) {
+                    audit.push({ page, stop: "maxRuntimeMs", maxRuntimeMs });
+                    break;
                 }
-                else {
-                    localBody = this.setPagingInBody(localBody, pageNumber, pageSize);
+                if (page > maxPages) {
+                    audit.push({ page, stop: "maxPages", maxPages });
+                    break;
+                }
+                const localParams = { ...params };
+                let localBody = body;
+                if (ptype === "PAGE_NUMBER" || ptype === "TOTALHITS") {
+                    if (op.parameters.some((p) => p.in === "query" && p.name === "pageNumber")) {
+                        localParams.pageNumber = pageNumber;
+                        localParams.pageSize = pageSize;
+                    }
+                    else {
+                        localBody = this.setPagingInBody(localBody, pageNumber, pageSize);
+                    }
+                }
+                else if (ptype === "CURSOR" && cursor) {
+                    if (op.parameters.some((p) => p.in === "query" && p.name === "cursor"))
+                        localParams.cursor = cursor;
+                    else
+                        localBody = this.setBodyToken(localBody, "cursor", cursor);
+                }
+                else if (ptype === "AFTER" && after) {
+                    if (op.parameters.some((p) => p.in === "query" && p.name === "after"))
+                        localParams.after = after;
+                    else
+                        localBody = this.setBodyToken(localBody, "after", after);
+                }
+                const data = await this.callOnce(client, op, localParams, localBody, next ?? undefined);
+                const batch = this.getItemsByPath(data, itemsPath);
+                totalFetched += batch.length;
+                if (includeItems) {
+                    const remaining = Math.max(0, limit - items.length);
+                    if (remaining > 0)
+                        items.push(...batch.slice(0, remaining));
+                }
+                audit.push({
+                    page,
+                    fetched: batch.length,
+                    totalFetched,
+                    pagingType: ptype,
+                    itemsPath,
+                    nextUri: redactedPagingValue(data?.nextUri),
+                    nextPage: redactedPagingValue(data?.nextPage),
+                    cursor: redactedPagingValue(data?.cursor),
+                    after: redactedPagingValue(data?.after),
+                    pageNumber: data?.pageNumber ?? null,
+                    pageCount: data?.pageCount ?? null,
+                    totalHits: data?.totalHits ?? null,
+                });
+                if (totalFetched >= limit) {
+                    audit.push({ page, stop: "limit", limit });
+                    break;
+                }
+                if (batch.length === 0) {
+                    audit.push({ page, stop: "emptyBatch" });
+                    break;
+                }
+                next = null;
+                if (ptype === "NEXT_URI") {
+                    next = data?.nextUri ?? null;
+                    if (!next) {
+                        audit.push({ page, stop: "missingNextUri" });
+                        break;
+                    }
+                    const marker = `nextUri:${next}`;
+                    if (seenTokens.has(marker)) {
+                        audit.push({ page, stop: "repeatNextUri" });
+                        break;
+                    }
+                    seenTokens.add(marker);
+                }
+                else if (ptype === "NEXT_PAGE") {
+                    next = data?.nextPage ?? null;
+                    if (!next) {
+                        audit.push({ page, stop: "missingNextPage" });
+                        break;
+                    }
+                    const marker = `nextPage:${next}`;
+                    if (seenTokens.has(marker)) {
+                        audit.push({ page, stop: "repeatNextPage" });
+                        break;
+                    }
+                    seenTokens.add(marker);
+                }
+                else if (ptype === "CURSOR") {
+                    cursor = data?.cursor ?? null;
+                    if (!cursor) {
+                        audit.push({ page, stop: "missingCursor" });
+                        break;
+                    }
+                    const marker = `cursor:${cursor}`;
+                    if (seenTokens.has(marker)) {
+                        audit.push({ page, stop: "repeatCursor" });
+                        break;
+                    }
+                    seenTokens.add(marker);
+                }
+                else if (ptype === "AFTER") {
+                    after = data?.after ?? null;
+                    if (!after) {
+                        audit.push({ page, stop: "missingAfter" });
+                        break;
+                    }
+                    const marker = `after:${after}`;
+                    if (seenTokens.has(marker)) {
+                        audit.push({ page, stop: "repeatAfter" });
+                        break;
+                    }
+                    seenTokens.add(marker);
+                }
+                else if (ptype === "PAGE_NUMBER") {
+                    const pn = Number(data?.pageNumber ?? 0);
+                    const pc = Number(data?.pageCount ?? 0);
+                    if (pc && pn && pn >= pc) {
+                        audit.push({ page, stop: "reachedPageCount", pageNumber: pn, pageCount: pc });
+                        break;
+                    }
+                    pageNumber++;
+                }
+                else if (ptype === "TOTALHITS") {
+                    const th = Number(data?.totalHits ?? 0);
+                    if (!th) {
+                        audit.push({ page, stop: "missingTotalHits" });
+                        break;
+                    }
+                    if (pageNumber * pageSize >= th) {
+                        audit.push({ page, stop: "reachedTotalHits", totalHits: th });
+                        break;
+                    }
+                    pageNumber++;
+                }
+                page++;
+            }
+            let stopReason = "completed";
+            for (let idx = audit.length - 1; idx >= 0; idx--) {
+                const maybeStop = audit[idx]?.stop;
+                if (typeof maybeStop === "string" && maybeStop) {
+                    stopReason = maybeStop;
+                    break;
                 }
             }
-            else if (ptype === "CURSOR" && cursor) {
-                if (op.parameters.some((p) => p.in === "query" && p.name === "cursor"))
-                    localParams.cursor = cursor;
-                else
-                    localBody = this.setBodyToken(localBody, "cursor", cursor);
-            }
-            else if (ptype === "AFTER" && after) {
-                if (op.parameters.some((p) => p.in === "query" && p.name === "after"))
-                    localParams.after = after;
-                else
-                    localBody = this.setBodyToken(localBody, "after", after);
-            }
-            const data = await this.callOnce(client, op, localParams, localBody, next ?? undefined);
-            const batch = this.getItemsByPath(data, itemsPath);
-            totalFetched += batch.length;
-            if (includeItems) {
-                const remaining = Math.max(0, limit - items.length);
-                if (remaining > 0)
-                    items.push(...batch.slice(0, remaining));
-            }
-            audit.push({
-                page,
-                fetched: batch.length,
-                totalFetched,
+            const result = {
+                operationId,
                 pagingType: ptype,
                 itemsPath,
-                nextUri: redactedPagingValue(data?.nextUri),
-                nextPage: redactedPagingValue(data?.nextPage),
-                cursor: redactedPagingValue(data?.cursor),
-                after: redactedPagingValue(data?.after),
-                pageNumber: data?.pageNumber ?? null,
-                pageCount: data?.pageCount ?? null,
-                totalHits: data?.totalHits ?? null,
-            });
-            if (totalFetched >= limit) {
-                audit.push({ page, stop: "limit", limit });
-                break;
-            }
-            if (batch.length === 0) {
-                audit.push({ page, stop: "emptyBatch" });
-                break;
-            }
-            next = null;
-            if (ptype === "NEXT_URI") {
-                next = data?.nextUri ?? null;
-                if (!next) {
-                    audit.push({ page, stop: "missingNextUri" });
-                    break;
-                }
-                const marker = `nextUri:${next}`;
-                if (seenTokens.has(marker)) {
-                    audit.push({ page, stop: "repeatNextUri" });
-                    break;
-                }
-                seenTokens.add(marker);
-            }
-            else if (ptype === "NEXT_PAGE") {
-                next = data?.nextPage ?? null;
-                if (!next) {
-                    audit.push({ page, stop: "missingNextPage" });
-                    break;
-                }
-                const marker = `nextPage:${next}`;
-                if (seenTokens.has(marker)) {
-                    audit.push({ page, stop: "repeatNextPage" });
-                    break;
-                }
-                seenTokens.add(marker);
-            }
-            else if (ptype === "CURSOR") {
-                cursor = data?.cursor ?? null;
-                if (!cursor) {
-                    audit.push({ page, stop: "missingCursor" });
-                    break;
-                }
-                const marker = `cursor:${cursor}`;
-                if (seenTokens.has(marker)) {
-                    audit.push({ page, stop: "repeatCursor" });
-                    break;
-                }
-                seenTokens.add(marker);
-            }
-            else if (ptype === "AFTER") {
-                after = data?.after ?? null;
-                if (!after) {
-                    audit.push({ page, stop: "missingAfter" });
-                    break;
-                }
-                const marker = `after:${after}`;
-                if (seenTokens.has(marker)) {
-                    audit.push({ page, stop: "repeatAfter" });
-                    break;
-                }
-                seenTokens.add(marker);
-            }
-            else if (ptype === "PAGE_NUMBER") {
-                const pn = Number(data?.pageNumber ?? 0);
-                const pc = Number(data?.pageCount ?? 0);
-                if (pc && pn && pn >= pc) {
-                    audit.push({ page, stop: "reachedPageCount", pageNumber: pn, pageCount: pc });
-                    break;
-                }
-                pageNumber++;
-            }
-            else if (ptype === "TOTALHITS") {
-                const th = Number(data?.totalHits ?? 0);
-                if (!th) {
-                    audit.push({ page, stop: "missingTotalHits" });
-                    break;
-                }
-                if (pageNumber * pageSize >= th) {
-                    audit.push({ page, stop: "reachedTotalHits", totalHits: th });
-                    break;
-                }
-                pageNumber++;
-            }
-            page++;
+                limit,
+                maxPages,
+                pageSize,
+                maxRuntimeMs,
+                totalFetched,
+                returnedItems: includeItems ? items.length : 0,
+                items: includeItems ? items : [],
+                audit,
+            };
+            const logPayload = {
+                operationId,
+                method: op.method.toUpperCase(),
+                status: 200,
+                durationMs: Date.now() - startedAt,
+                pagingType: ptype,
+                pagesFetched: audit.filter((entry) => typeof entry?.fetched === "number").length,
+                totalFetched,
+                returnedItems: result.returnedItems,
+                stopReason,
+            };
+            if (requestSummary !== undefined)
+                logPayload.request = requestSummary;
+            logInfo("genesys.callAll", logPayload);
+            return result;
         }
-        return {
-            operationId,
-            pagingType: ptype,
-            itemsPath,
-            limit,
-            maxPages,
-            pageSize,
-            maxRuntimeMs,
-            totalFetched,
-            returnedItems: includeItems ? items.length : 0,
-            items: includeItems ? items : [],
-            audit,
-        };
+        catch (error) {
+            const mapped = this.mapErrorToHttp(error);
+            const logPayload = {
+                operationId,
+                method: op.method.toUpperCase(),
+                status: mapped.status,
+                error: mapped.message,
+                durationMs: Date.now() - startedAt,
+            };
+            if (requestSummary !== undefined)
+                logPayload.request = requestSummary;
+            if (mapped.details !== undefined)
+                logPayload.errorDetails = this.redactForLog(mapped.details);
+            logInfo("genesys.callAll", logPayload);
+            throw error;
+        }
     }
     logStartup() {
         logInfo("server.started", {

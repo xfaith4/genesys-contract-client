@@ -24,6 +24,17 @@ npm run build
 npm start
 ```
 
+## Tests
+
+From `src/mcp-server`:
+
+```bash
+npm test
+npm run test:pester
+```
+
+`npm run test:pester` resolves the root-level Pester test path automatically.
+
 ## Endpoints
 
 - MCP endpoint: `POST/GET/DELETE /mcp` (configurable via `MCP_PATH`)
@@ -142,4 +153,3 @@ Output:
   "totalFetched": 0
 }
 ```
-

@@ -2,8 +2,29 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
-import { ensureObject, parsePositiveInt, toNonEmptyString } from "../core/utils.js";
+import { parsePositiveInt } from "../core/utils.js";
+const describeInputSchema = z.strictObject({
+    operationId: z.string().min(1),
+});
+const searchOperationsInputSchema = z.strictObject({
+    query: z.string(),
+    limit: z.number().int().positive().max(200).optional(),
+});
+const callInputSchema = z.strictObject({
+    operationId: z.string().min(1),
+    params: z.record(z.string(), z.unknown()).optional(),
+    body: z.record(z.string(), z.unknown()).optional(),
+});
+const callAllInputSchema = z.strictObject({
+    operationId: z.string().min(1),
+    params: z.record(z.string(), z.unknown()).optional(),
+    body: z.record(z.string(), z.unknown()).optional(),
+    limit: z.number().int().positive().optional(),
+    maxPages: z.number().int().positive().optional(),
+    maxRuntimeMs: z.number().int().positive().optional(),
+});
 function toMcpErrorResult(core, error) {
     const mapped = core.mapErrorToHttp(error);
     return {
@@ -33,9 +54,7 @@ function createGenesysMcpServer(core) {
     });
     server.registerTool("genesys.describe", {
         description: "Describe operation contract, paging metadata, and governance policy.",
-        inputSchema: {
-            operationId: z.string().min(1),
-        },
+        inputSchema: describeInputSchema,
         annotations: {
             readOnlyHint: true,
             idempotentHint: true,
@@ -51,10 +70,7 @@ function createGenesysMcpServer(core) {
     });
     server.registerTool("genesys.searchOperations", {
         description: "Search operation catalog by query/method/tag.",
-        inputSchema: {
-            query: z.string(),
-            limit: z.number().int().positive().max(200).optional(),
-        },
+        inputSchema: searchOperationsInputSchema,
         annotations: {
             readOnlyHint: true,
             idempotentHint: true,
@@ -70,21 +86,13 @@ function createGenesysMcpServer(core) {
     });
     server.registerTool("genesys.call", {
         description: "Execute one contract-validated Genesys operation.",
-        inputSchema: {
-            operationId: z.string().min(1),
-            params: z.record(z.string(), z.unknown()).optional(),
-            body: z.record(z.string(), z.unknown()).optional(),
-        },
+        inputSchema: callInputSchema,
         annotations: {
             readOnlyHint: false,
             idempotentHint: false,
         },
     }, async ({ operationId, params, body }) => {
         try {
-            if (core.config.logRequestPayloads) {
-                const summary = core.summarizeRequest(operationId, params, body);
-                console.log(JSON.stringify({ event: "mcp.tool.call.request", operationId, summary }));
-            }
             const result = await core.call({ operationId, params, body });
             return toMcpOkResult(result);
         }
@@ -94,24 +102,13 @@ function createGenesysMcpServer(core) {
     });
     server.registerTool("genesys.callAll", {
         description: "Execute deterministic paginated operation call with audit output.",
-        inputSchema: {
-            operationId: z.string().min(1),
-            params: z.record(z.string(), z.unknown()).optional(),
-            body: z.record(z.string(), z.unknown()).optional(),
-            limit: z.number().int().positive().optional(),
-            maxPages: z.number().int().positive().optional(),
-            maxRuntimeMs: z.number().int().positive().optional(),
-        },
+        inputSchema: callAllInputSchema,
         annotations: {
             readOnlyHint: false,
             idempotentHint: false,
         },
     }, async ({ operationId, params, body, limit, maxPages, maxRuntimeMs }) => {
         try {
-            if (core.config.logRequestPayloads) {
-                const summary = core.summarizeRequest(operationId, params, body);
-                console.log(JSON.stringify({ event: "mcp.tool.callAll.request", operationId, limit, maxPages, maxRuntimeMs, summary }));
-            }
             const result = await core.callAll({ operationId, params, body, limit, maxPages, maxRuntimeMs, includeItems: true });
             return toMcpOkResult(result);
         }
@@ -123,6 +120,7 @@ function createGenesysMcpServer(core) {
 }
 export function createMcpApp(core) {
     const app = createMcpExpressApp({ host: core.config.host });
+    const sessions = new Map();
     app.disable("x-powered-by");
     app.use((req, res, next) => {
         const supplied = String(req.header("x-request-id") || "").trim();
@@ -146,36 +144,107 @@ export function createMcpApp(core) {
         });
         next();
     });
+    async function closeSession(sessionId) {
+        const state = sessions.get(sessionId);
+        if (!state)
+            return;
+        sessions.delete(sessionId);
+        await state.transport.close().catch(() => undefined);
+        await state.server.close().catch(() => undefined);
+    }
+    function writeJsonRpcError(res, code, mapped) {
+        if (res.headersSent)
+            return;
+        res.status(mapped.status).json({
+            jsonrpc: "2.0",
+            error: { code, message: mapped.message, data: core.redactForLog(mapped.details) },
+            id: null,
+        });
+    }
     app.post(core.config.mcpPath, async (req, res) => {
         try {
             core.requireServerKey(String(req.header("x-server-key") || ""));
+            const sessionId = String(req.header("mcp-session-id") || "").trim();
+            if (sessionId) {
+                const state = sessions.get(sessionId);
+                if (!state) {
+                    writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
+                    return;
+                }
+                await state.transport.handleRequest(req, res, req.body);
+                return;
+            }
+            if (!isInitializeRequest(req.body)) {
+                writeJsonRpcError(res, -32000, { status: 400, message: "Missing mcp-session-id header for non-initialize request." });
+                return;
+            }
             const mcpServer = createGenesysMcpServer(core);
             const transport = new StreamableHTTPServerTransport({
-                sessionIdGenerator: undefined,
+                sessionIdGenerator: () => randomUUID(),
+                onsessioninitialized: (newSessionId) => {
+                    sessions.set(newSessionId, { server: mcpServer, transport });
+                },
             });
-            await mcpServer.connect(transport);
-            await transport.handleRequest(req, res, req.body);
-            res.on("close", () => {
-                void transport.close();
-                void mcpServer.close();
-            });
+            transport.onclose = () => {
+                const sid = transport.sessionId;
+                if (sid) {
+                    sessions.delete(sid);
+                }
+                void mcpServer.close().catch(() => undefined);
+            };
+            try {
+                await mcpServer.connect(transport);
+                await transport.handleRequest(req, res, req.body);
+            }
+            catch (error) {
+                await transport.close().catch(() => undefined);
+                await mcpServer.close().catch(() => undefined);
+                throw error;
+            }
         }
         catch (error) {
             const mapped = core.mapErrorToHttp(error);
-            if (!res.headersSent) {
-                res.status(mapped.status).json({
-                    jsonrpc: "2.0",
-                    error: { code: -32603, message: mapped.message, data: core.redactForLog(mapped.details) },
-                    id: null,
-                });
-            }
+            writeJsonRpcError(res, -32603, mapped);
         }
     });
-    app.get(core.config.mcpPath, (_req, res) => {
-        res.status(405).set("Allow", "POST").send("Method Not Allowed");
+    app.get(core.config.mcpPath, async (req, res) => {
+        try {
+            core.requireServerKey(String(req.header("x-server-key") || ""));
+            const sessionId = String(req.header("mcp-session-id") || "").trim();
+            if (!sessionId) {
+                writeJsonRpcError(res, -32000, { status: 400, message: "Missing mcp-session-id header." });
+                return;
+            }
+            const state = sessions.get(sessionId);
+            if (!state) {
+                writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
+                return;
+            }
+            await state.transport.handleRequest(req, res);
+        }
+        catch (error) {
+            writeJsonRpcError(res, -32603, core.mapErrorToHttp(error));
+        }
     });
-    app.delete(core.config.mcpPath, (_req, res) => {
-        res.status(405).set("Allow", "POST").send("Method Not Allowed");
+    app.delete(core.config.mcpPath, async (req, res) => {
+        try {
+            core.requireServerKey(String(req.header("x-server-key") || ""));
+            const sessionId = String(req.header("mcp-session-id") || "").trim();
+            if (!sessionId) {
+                writeJsonRpcError(res, -32000, { status: 400, message: "Missing mcp-session-id header." });
+                return;
+            }
+            const state = sessions.get(sessionId);
+            if (!state) {
+                writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
+                return;
+            }
+            await state.transport.handleRequest(req, res);
+            await closeSession(sessionId);
+        }
+        catch (error) {
+            writeJsonRpcError(res, -32603, core.mapErrorToHttp(error));
+        }
     });
     app.get(core.config.healthPath, (_req, res) => {
         res.json({
@@ -183,21 +252,22 @@ export function createMcpApp(core) {
             transport: "mcp-streamable-http",
             mcpPath: core.config.mcpPath,
             legacyHttpApi: core.config.legacyHttpApi,
+            activeSessions: sessions.size,
         });
     });
     return app;
 }
 export function parseMcpToolInput(raw) {
-    const payload = ensureObject(raw, "tool input");
-    const operationId = toNonEmptyString(payload.operationId, "operationId");
-    const params = payload.params === undefined ? {} : ensureObject(payload.params, "params");
-    const body = payload.body ?? null;
+    const parsed = callAllInputSchema.safeParse(raw);
+    if (!parsed.success) {
+        throw new Error(parsed.error.message);
+    }
     return {
-        operationId,
-        params,
-        body,
-        limit: parsePositiveInt(payload.limit, "limit"),
-        maxPages: parsePositiveInt(payload.maxPages, "maxPages"),
-        maxRuntimeMs: parsePositiveInt(payload.maxRuntimeMs, "maxRuntimeMs"),
+        operationId: parsed.data.operationId,
+        params: parsed.data.params ?? {},
+        body: parsed.data.body ?? null,
+        limit: parsePositiveInt(parsed.data.limit, "limit"),
+        maxPages: parsePositiveInt(parsed.data.maxPages, "maxPages"),
+        maxRuntimeMs: parsePositiveInt(parsed.data.maxRuntimeMs, "maxRuntimeMs"),
     };
 }

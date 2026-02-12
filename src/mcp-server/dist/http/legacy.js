@@ -12,7 +12,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
     app.post("/call", async (req, res) => {
@@ -37,7 +37,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
     app.post("/callAll", async (req, res) => {
@@ -76,7 +76,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
     app.post("/searchOperations", async (req, res) => {
@@ -94,7 +94,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
     app.get("/tools", (req, res) => {
@@ -113,7 +113,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
     app.post("/tools/invoke", async (req, res) => {
@@ -165,7 +165,7 @@ export function registerLegacyHttpRoutes(app, core) {
         }
         catch (e) {
             const mapped = core.mapErrorToHttp(e);
-            return res.status(mapped.status).json({ error: mapped.message, details: mapped.details, requestId: req.requestId });
+            return res.status(mapped.status).json({ error: mapped.message, details: core.redactForLog(mapped.details), requestId: req.requestId });
         }
     });
 }

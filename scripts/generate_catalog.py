@@ -11,7 +11,7 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 HTTP_METHODS = {"get", "post", "put", "delete", "patch", "head", "options"}
@@ -228,9 +228,8 @@ def main():
         json.dump(paging, f, indent=2)
 
     with open(os.path.join(args.out, "generated-at.txt"), "w", encoding="utf-8") as f:
-        f.write(datetime.utcnow().isoformat() + "Z\n")
+        f.write(datetime.now(timezone.utc).isoformat().replace("+00:00", "Z") + "\n")
 
 
 if __name__ == "__main__":
     main()
-
