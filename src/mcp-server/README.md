@@ -1,46 +1,145 @@
-# genesys-contract-client server (HTTP surface)
+# Genesys Contract Client MCP Server
 
-This folder currently contains an **HTTP wrapper** around the contract/pagination logic.
-It is intentionally conservative and designed to be wrapped by your org’s agent platform.
+Protocol-native MCP server using **Streamable HTTP** (`@modelcontextprotocol/sdk`) with a curated tool surface:
 
-## Security defaults
+- `genesys.describe`
+- `genesys.searchOperations`
+- `genesys.call`
+- `genesys.callAll`
 
-- If `SERVER_API_KEY` is set, requests must include header `X-Server-Key: <value>`.
-- If `registry/allowlist.yaml` contains operationIds/tags, only those are allowed.
-- `registry/denylist.yaml` blocks matching operationIds/tags before allowlist evaluation.
-- If the allowlist is empty, **GET operations are allowed** and **non-GET operations are denied** unless `ALLOW_WRITE_OPERATIONS=true`.
-- Pagination follow-ups (`nextUri` / `nextPage`) are resolved against `client.baseUrl` and refused if they point to a different host.
-- Request payload fields are strict; unknown fields are rejected.
-- Request bodies are validated against Swagger schemas (`#/definitions/...`) with unknown field rejection.
+The server enforces contract validation, deterministic pagination, and governance controls from the catalog and registry files.
 
-## Scripts
+## Run
 
 ```bash
+cd src/mcp-server
 npm install
+npm run dev
+```
+
+Production build:
+
+```bash
 npm run build
 npm start
 ```
 
-### Endpoints
+## Endpoints
 
-- `POST /describe` → returns operation contract + paging metadata
-- `POST /call` → performs a single call
-- `POST /callAll` → performs deterministic pagination with safety caps
-- `POST /searchOperations` → query operation catalog (query/method/tag)
-- `GET /tools` → curated tool inventory (`genesys.*`)
-- `POST /tools/invoke` → tool-style invocation front door (`genesys.describe/call/callAll/searchOperations`)
-- `GET /healthz` → liveness probe
+- MCP endpoint: `POST/GET/DELETE /mcp` (configurable via `MCP_PATH`)
+- Health endpoint: `GET /healthz` (configurable via `HEALTH_PATH`)
 
-## Credential policy
+Legacy HTTP adapter routes (`/describe`, `/call`, `/callAll`, `/tools/invoke`) are **disabled by default** and only enabled when:
 
-- Server-managed credentials (recommended): set `GENESYS_BASE_URL`, `GENESYS_TOKEN_URL`, `GENESYS_CLIENT_ID`, `GENESYS_CLIENT_SECRET`, optional `GENESYS_SCOPE`.
-- Per-request credentials: allowed only when `ALLOW_CLIENT_OVERRIDES=true`.
-- Host restrictions:
-  - `ALLOWED_BASE_HOSTS` (comma-separated hostnames)
-  - `ALLOWED_TOKEN_HOSTS` (comma-separated hostnames)
-- `ALLOW_INSECURE_HTTP=true` only allows loopback HTTP (`127.0.0.1/localhost`) for local testing.
+- `LEGACY_HTTP_API=true`
 
-## MCP note
+## Governance Controls
 
-For a **protocol-native** MCP server, you’d implement MCP Streamable HTTP (recommended over SSE) and expose a curated set of tools.
-See OpenAI’s MCP guidance for transports and remote server behavior.
+- `registry/allowlist.yaml`: operation allowlist (`operationId` and `tag:<name>`)
+- `registry/denylist.yaml`: deny rules evaluated before allowlist/default policy
+- `registry/paging-registry.yaml`: pagination overrides
+- `registry/pii-redaction.yaml`: redaction fallback field names
+- `registry/logging-policy.yaml`: allowlisted request summary fields
+
+Default execution policy:
+
+- Deny writes by default (`GET` allowed, non-GET blocked) unless `ALLOW_WRITE_OPERATIONS=true`
+- Enforce same-origin for pagination links (`nextUri`, `nextPage`)
+- Clamp pagination runtime controls (`limit`, `maxPages`, `maxRuntimeMs`) to hard caps
+
+## Credentials
+
+Recommended for MCP tools: server-managed credentials from environment:
+
+- `GENESYS_BASE_URL`
+- `GENESYS_TOKEN_URL`
+- `GENESYS_CLIENT_ID`
+- `GENESYS_CLIENT_SECRET`
+- `GENESYS_SCOPE` (optional)
+
+Optional per-request credential overrides are blocked unless:
+
+- `ALLOW_CLIENT_OVERRIDES=true`
+
+## Optional Auth Boundary
+
+If `SERVER_API_KEY` is set, every request must include:
+
+- `X-Server-Key: <value>`
+
+## Tool Inputs and Outputs
+
+### `genesys.describe`
+
+Input:
+
+```json
+{ "operationId": "getUsers" }
+```
+
+Output (`structuredContent`):
+
+```json
+{
+  "operation": { "...": "..." },
+  "paging": { "type": "NEXT_URI", "itemsPath": "$.entities" },
+  "policy": { "...": "..." }
+}
+```
+
+### `genesys.searchOperations`
+
+Input:
+
+```json
+{ "query": "conversations details", "limit": 25 }
+```
+
+Output:
+
+```json
+{ "count": 3, "operations": [ { "...": "..." } ] }
+```
+
+### `genesys.call`
+
+Input:
+
+```json
+{
+  "operationId": "getUsers",
+  "params": { "pageSize": 100, "pageNumber": 1 }
+}
+```
+
+Output:
+
+```json
+{ "data": { "...": "..." } }
+```
+
+### `genesys.callAll`
+
+Input:
+
+```json
+{
+  "operationId": "postAnalyticsConversationsDetailsQuery",
+  "body": { "interval": "2026-02-01T00:00:00.000Z/2026-02-01T01:00:00.000Z" },
+  "limit": 5000,
+  "maxPages": 50,
+  "maxRuntimeMs": 120000
+}
+```
+
+Output:
+
+```json
+{
+  "items": [],
+  "audit": [],
+  "pagingType": "TOTALHITS",
+  "totalFetched": 0
+}
+```
+

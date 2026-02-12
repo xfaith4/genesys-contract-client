@@ -1,0 +1,28 @@
+---
+default:
+  # Safe-by-default: log metadata and paging audit only.
+  params: []
+  bodyPaths: []
+
+operations:
+  # Conversation details query: keep only non-sensitive request shape fields.
+  postAnalyticsConversationsDetailsQuery:
+    params:
+      - pageSize
+      - pageNumber
+    bodyPaths:
+      - $.interval
+      - $.paging.pageSize
+      - $.paging.pageNumber
+      - $.conversationFilters
+      - $.segmentFilters
+
+  # Job creation can include large filter payloads; keep summary-only fields.
+  postAnalyticsConversationsDetailsJobs:
+    params: []
+    bodyPaths:
+      - $.interval
+      - $.paging.pageSize
+      - $.conversationFilters
+      - $.segmentFilters
+
