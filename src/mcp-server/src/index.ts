@@ -2,6 +2,7 @@ import express from "express";
 import axios from "axios";
 import fs from "node:fs";
 import path from "node:path";
+import process from "process";
 
 type PagingType = "NEXT_URI"|"NEXT_PAGE"|"CURSOR"|"AFTER"|"PAGE_NUMBER"|"TOTALHITS"|"START_INDEX"|"UNKNOWN";
 
