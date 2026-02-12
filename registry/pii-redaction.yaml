@@ -1,0 +1,18 @@
+---
+# Field names to redact in structured logs and audits.
+# Matching is case-insensitive.
+
+- access_token
+- authorization
+- token
+- refresh_token
+- id_token
+- clientSecret
+- secret
+- password
+- ssn
+- socialSecurityNumber
+- phone
+- email
+- address
+- externalContact

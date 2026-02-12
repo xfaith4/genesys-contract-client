@@ -110,3 +110,14 @@ It’s intentionally a “starter” script:
 - interval required
 - optional queueId/divisionId arrays
 - exports a flattened row set suitable for CSV/Excel
+
+## Contract playbook artifact
+
+For machine-readable routing (MCP/tools/scripts), use:
+- `playbooks/conversations.yaml`
+
+For production-oriented script entrypoints:
+- `golden-scripts/30-Convo-ForensicsById.ps1`
+- `golden-scripts/31-Convo-DetailsByInterval.ps1`
+- `golden-scripts/32-Convo-DetailsByQueueOrDivision.ps1`
+- `golden-scripts/33-Convo-DetailsJobExport.ps1`

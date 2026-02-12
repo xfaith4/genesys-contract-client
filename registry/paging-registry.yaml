@@ -1,0 +1,16 @@
+---
+# Operation-level pagination overrides.
+# Use when schema inference is ambiguous or incorrect.
+#
+# Example:
+# getUsers:
+#   type: PAGE_NUMBER
+#   itemsPath: $.entities
+
+postAnalyticsConversationsDetailsQuery:
+  type: TOTALHITS
+  itemsPath: $.conversations
+
+getAnalyticsConversationsDetailsJobResults:
+  type: CURSOR
+  itemsPath: $.conversations

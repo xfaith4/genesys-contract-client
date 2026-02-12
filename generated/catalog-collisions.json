@@ -1,0 +1,27 @@
+{
+  "getPresenceDefinition__case2": {
+    "operationId": "getPresenceDefinition",
+    "conflictsWith": "getPresencedefinition",
+    "reason": "case-insensitive key collision"
+  },
+  "putPresenceDefinition__case2": {
+    "operationId": "putPresenceDefinition",
+    "conflictsWith": "putPresencedefinition",
+    "reason": "case-insensitive key collision"
+  },
+  "deletePresenceDefinition__case2": {
+    "operationId": "deletePresenceDefinition",
+    "conflictsWith": "deletePresencedefinition",
+    "reason": "case-insensitive key collision"
+  },
+  "getPresenceDefinitions__case2": {
+    "operationId": "getPresenceDefinitions",
+    "conflictsWith": "getPresencedefinitions",
+    "reason": "case-insensitive key collision"
+  },
+  "postPresenceDefinitions__case2": {
+    "operationId": "postPresenceDefinitions",
+    "conflictsWith": "postPresencedefinitions",
+    "reason": "case-insensitive key collision"
+  }
+}

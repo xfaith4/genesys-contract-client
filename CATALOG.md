@@ -52,10 +52,27 @@ Invoke-GcApiAll -Client $client -OperationId "getRoutingQueues" -PageSize 100 -L
 
 ## Conversations playbook
 
-Conversations are where engineers get real insight fast (single conversation forensics, timeboxed sets, queue/division slices).
+Conversations are the primary focus of this repo (forensics, interval pull, queue/division analysis, large exports).
 
-- **Decision trees + recommended endpoints:** **[docs/conversations-playbook.md](docs/conversations-playbook.md)**
-- Starter report script(s): see `golden-scripts/20-*`
+- Guide narrative: **[docs/conversations-playbook.md](docs/conversations-playbook.md)**
+- Contract-bound workflow map: **[playbooks/conversations.yaml](playbooks/conversations.yaml)**
+- Stakeholder/product map: **[docs/stakeholder-map.md](docs/stakeholder-map.md)**
+- Golden script wedge:
+  - `golden-scripts/30-Convo-ForensicsById.ps1`
+  - `golden-scripts/31-Convo-DetailsByInterval.ps1`
+  - `golden-scripts/32-Convo-DetailsByQueueOrDivision.ps1`
+  - `golden-scripts/33-Convo-DetailsJobExport.ps1`
+
+### Conversations decision tree
+
+1. Have one `conversationId` and need timeline/participants/wrap-up:
+   - `30-Convo-ForensicsById.ps1`
+2. Need interval report set:
+   - `31-Convo-DetailsByInterval.ps1`
+3. Need queue/division-focused analysis:
+   - `32-Convo-DetailsByQueueOrDivision.ps1`
+4. Need very large export:
+   - `33-Convo-DetailsJobExport.ps1`
 
 ## Adding a new Golden Script
 

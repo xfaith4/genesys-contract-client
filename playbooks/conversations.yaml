@@ -1,0 +1,166 @@
+---
+playbook: conversations
+version: 1
+source:
+  swagger: specs/swagger.json
+  operations_catalog: generated/operations.json
+
+entries:
+  - id: forensics_by_conversation_id
+    question: "I have one conversationId and need a forensic timeline."
+    recommended_sequence:
+      - getConversation
+      - getConversationsCall
+      - getConversationsCallParticipantWrapup
+      - getConversationsCallParticipantCommunicationWrapup
+      - getAnalyticsConversationDetails
+    filters:
+      required:
+        - conversationId
+      optional:
+        - provisional
+    paging_strategy:
+      type: single_call
+      notes:
+        - "These operations are not paged; use genesys.call / Invoke-GcApi."
+    fallbacks:
+      - "If call-specific endpoints are not applicable, use getAnalyticsConversationDetails."
+    permissions_scopes:
+      oauth_scopes:
+        - conversations
+        - conversations:readonly
+        - analytics
+        - analytics:readonly
+      permissions_note: "Inspect operation.requiredPermissions in describe output before execution."
+    output_presets:
+      Minimal:
+        fields:
+          - conversationId
+          - conversationStart
+          - conversationEnd
+          - originatingDirection
+      Full:
+        include: "full response payload"
+      Forensics:
+        fields:
+          - conversationId
+          - participants
+          - sessions
+          - segments
+          - wrapup
+          - metrics
+
+  - id: details_query_by_interval
+    question: "I need all conversations for a time interval."
+    recommended_sequence:
+      - postAnalyticsConversationsDetailsQuery
+    filters:
+      required:
+        - interval
+      optional:
+        - paging.pageSize
+        - paging.pageNumber
+        - conversationFilters
+        - segmentFilters
+    paging_strategy:
+      type: TOTALHITS
+      operation: postAnalyticsConversationsDetailsQuery
+      notes:
+        - "Use genesys.callAll / Invoke-GcApiAll; do not manually increment pages."
+    fallbacks:
+      - "If result cardinality is large, switch to details jobs workflow."
+    permissions_scopes:
+      oauth_scopes:
+        - analytics
+        - analytics:readonly
+      permissions_note: "Describe response includes requiredPermissions from swagger extensions."
+    output_presets:
+      Minimal:
+        fields:
+          - conversationId
+          - conversationStart
+          - conversationEnd
+          - divisionIds
+      Full:
+        include: "full conversations array"
+      Forensics:
+        fields:
+          - conversationId
+          - participants
+          - segments
+          - metrics
+
+  - id: details_query_by_queue_or_division
+    question: "I need conversations filtered by queue and/or division."
+    recommended_sequence:
+      - postAnalyticsConversationsDetailsQuery
+    filters:
+      required:
+        - interval
+      optional:
+        - segmentFilters(queueId predicates)
+        - conversationFilters(divisionId predicates)
+    paging_strategy:
+      type: TOTALHITS
+      operation: postAnalyticsConversationsDetailsQuery
+    fallbacks:
+      - "If queue/division filtering still returns too much data, run job export."
+    permissions_scopes:
+      oauth_scopes:
+        - analytics
+        - analytics:readonly
+    output_presets:
+      Minimal:
+        fields:
+          - conversationId
+          - divisionIds
+          - queueIds
+          - conversationStart
+      Full:
+        include: "full conversations array"
+      Forensics:
+        fields:
+          - conversationId
+          - segments
+          - disconnectType
+          - wrapup
+
+  - id: large_dataset_export
+    question: "I need very large conversation exports."
+    recommended_sequence:
+      - postAnalyticsConversationsDetailsJobs
+      - getAnalyticsConversationsDetailsJob
+      - getAnalyticsConversationsDetailsJobResults
+    filters:
+      required:
+        - interval
+      optional:
+        - paging.pageSize
+        - conversationFilters
+        - segmentFilters
+    paging_strategy:
+      type: CURSOR
+      operation: getAnalyticsConversationsDetailsJobResults
+      notes:
+        - "Poll job status before pulling results."
+        - "Result paging must follow cursor tokens only."
+    fallbacks:
+      - "If job fails, reduce interval and retry."
+    permissions_scopes:
+      oauth_scopes:
+        - analytics
+        - analytics:readonly
+    output_presets:
+      Minimal:
+        fields:
+          - conversationId
+          - conversationStart
+          - conversationEnd
+      Full:
+        include: "full conversations payload per result page"
+      Forensics:
+        fields:
+          - conversationId
+          - participants
+          - segments
+          - metrics

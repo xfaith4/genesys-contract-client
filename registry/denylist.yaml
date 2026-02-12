@@ -1,0 +1,9 @@
+---
+# Optional denylist evaluated before allowlist/default policy.
+# Supports operationIds and tags.
+#
+# Examples:
+# - postUsers
+# - putRoutingQueue
+# - tag:Outbound
+# - tag:Integrations

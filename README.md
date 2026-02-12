@@ -12,6 +12,9 @@ This repo intentionally focuses on **eliminating guessing**:
 - `specs/swagger.json` — pinned Swagger 2.0 definition (extracted from API Explorer cache)
 - `generated/operations.json` — operation catalog (operationId → method/path/params)
 - `generated/pagination-map.json` — paging classification per operationId
+- `generated/catalog-collisions.json` — case-insensitive operationId key collisions remapped for PowerShell compatibility
+- `playbooks/conversations.yaml` — guide-derived, contract-bound workflow map for conversations use cases
+- `docs/stakeholder-map.md` — stakeholder focus map (API Explorer, AudioHook, CX as Code, SDK, Guides)
 - `src/ps-module/Genesys.ContractClient` — PowerShell engineer-facing module (PS 5.1+)
 - `src/mcp-server` — Node/TS HTTP service (easy to wrap as MCP tooling)
 
@@ -62,3 +65,4 @@ npm start
 - **Validation**: This MVP enforces required query/path params + rejects unknown query/path params.
   Full JSON Schema validation can be added later (Ajv + $ref resolver).
 - **Pagination**: `callAll` refuses operations classified as `UNKNOWN`. Add overrides in `registry/paging-registry.yaml` and regenerate maps.
+- **Governance**: allow/deny policy in `registry/allowlist.yaml` + `registry/denylist.yaml`; redaction field policy in `registry/pii-redaction.yaml`.

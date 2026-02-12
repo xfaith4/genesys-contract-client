@@ -31,7 +31,7 @@ Each script:
 
 ## Notes
 
-- Each script calls a **single** Genesys operationId explicitly.
+- Each script calls an explicit operationId set (single call or a documented sequence).
 - If an endpoint is marked `UNKNOWN` for paging, `Invoke-GcApiAll` will refuse. Add an override to `registry/paging-registry.yaml` and regenerate.
 
 ### END FILE

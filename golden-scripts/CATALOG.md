@@ -22,6 +22,10 @@ Outputs: `golden-scripts/out/<timestamp>/`
 | `06-EdgeDids.ps1` | DIDs | `getTelephonyProvidersEdgesDids` | DID inventory + assignment checks |
 | `07-Divisions.ps1` | Divisions | `getAuthorizationDivisions` | Org structure, scoping |
 | `20-AnalyticsConversationDetailsQuery.ps1` | Conversations (Details Query) | `postAnalyticsConversationsDetailsQuery` | Historical conversation sets by interval, queue, division (starter) |
+| `30-Convo-ForensicsById.ps1` | Conversation forensics | `getConversation`, `getConversationsCall`, wrapup ops, `getAnalyticsConversationDetails` | Single-conversation investigation and wrap-up trace |
+| `31-Convo-DetailsByInterval.ps1` | Details by interval | `postAnalyticsConversationsDetailsQuery` | Timeboxed conversation extracts |
+| `32-Convo-DetailsByQueueOrDivision.ps1` | Details by queue/division | `postAnalyticsConversationsDetailsQuery` | Queue/division scoped investigations |
+| `33-Convo-DetailsJobExport.ps1` | Async details export | `postAnalyticsConversationsDetailsJobs`, `getAnalyticsConversationsDetailsJob`, `getAnalyticsConversationsDetailsJobResults` | Large dataset export via async jobs |
 
 ## Notes
 

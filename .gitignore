@@ -1,0 +1,10 @@
+# Local dependencies/build output
+src/mcp-server/node_modules/
+
+# Generated during local test/build
+src/mcp-server/dist/*.test.js
+golden-scripts/out/
+
+# Editor/system noise
+.DS_Store
+Thumbs.db

@@ -11,3 +11,25 @@
 # - getUsers
 # - getRoutingQueues
 # - postAnalyticsConversationsDetailsQuery
+#
+# You can also allow by tag:
+# - tag:Conversations
+# - tag:Analytics
+
+- getUsers
+- getRoutingQueues
+- getRoutingSkills
+- getRoutingWrapupcodes
+- getTelephonyProvidersEdgesExtensions
+- getTelephonyProvidersEdgesDids
+- getAuthorizationDivisions
+- getAuthorizationDivisionsDeleted
+- postAnalyticsConversationsDetailsQuery
+- postAnalyticsConversationsDetailsJobs
+- getAnalyticsConversationsDetailsJob
+- getAnalyticsConversationsDetailsJobResults
+- getConversation
+- getConversationsCall
+- getConversationsCallParticipantWrapup
+- getConversationsCallParticipantCommunicationWrapup
+- getAnalyticsConversationDetails
