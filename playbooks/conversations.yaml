@@ -35,19 +35,22 @@ entries:
       Minimal:
         fields:
           - conversationId
-          - conversationStart
-          - conversationEnd
-          - originatingDirection
+          - startTime
+          - endTime
+          - state
+          - participants
       Full:
         include: "full response payload"
       Forensics:
         fields:
           - conversationId
-          - participants
-          - sessions
-          - segments
-          - wrapup
-          - metrics
+          - participants[].sessions[]
+          - participants[].sessions[].segments[]
+          - participants[].sessions[].segments[].disconnectType
+          - participants[].sessions[].segments[].wrapUpCode
+          - participants[].sessions[].metrics[]
+          - wrapup.code
+          - wrapup.notes
 
   - id: details_query_by_interval
     question: "I need all conversations for a time interval."
@@ -85,9 +88,11 @@ entries:
       Forensics:
         fields:
           - conversationId
-          - participants
-          - segments
-          - metrics
+          - participants[].participantId
+          - participants[].sessions[].segments[]
+          - participants[].sessions[].segments[].disconnectType
+          - participants[].sessions[].segments[].wrapUpCode
+          - participants[].sessions[].metrics[]
 
   - id: details_query_by_queue_or_division
     question: "I need conversations filtered by queue and/or division."
@@ -120,9 +125,11 @@ entries:
       Forensics:
         fields:
           - conversationId
-          - segments
-          - disconnectType
-          - wrapup
+          - participants[].sessions[].segments[]
+          - participants[].sessions[].segments[].queueId
+          - participants[].sessions[].segments[].disconnectType
+          - participants[].sessions[].segments[].wrapUpCode
+          - participants[].sessions[].segments[].wrapUpNote
 
   - id: large_dataset_export
     question: "I need very large conversation exports."
@@ -134,7 +141,9 @@ entries:
       required:
         - interval
       optional:
-        - paging.pageSize
+        - limit
+        - startOfDayIntervalMatching
+        - results.pageSize
         - conversationFilters
         - segmentFilters
     paging_strategy:
@@ -143,6 +152,7 @@ entries:
       notes:
         - "Poll job status before pulling results."
         - "Result paging must follow cursor tokens only."
+        - "Use query pageSize on getAnalyticsConversationsDetailsJobResults; AsyncConversationQuery body does not use paging.pageSize."
     fallbacks:
       - "If job fails, reduce interval and retry."
     permissions_scopes:
@@ -160,6 +170,9 @@ entries:
       Forensics:
         fields:
           - conversationId
-          - participants
-          - segments
-          - metrics
+          - participants[].participantId
+          - participants[].sessions[].segments[]
+          - participants[].sessions[].segments[].queueId
+          - participants[].sessions[].segments[].disconnectType
+          - participants[].sessions[].segments[].wrapUpCode
+          - participants[].sessions[].metrics[]
