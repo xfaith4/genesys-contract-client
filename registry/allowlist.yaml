@@ -1,0 +1,13 @@
+---
+# OperationIds allowed to be called by the server.
+#
+# If this file contains ANY operationIds, the server will deny everything else.
+#
+# If this file is empty (or only '---'), the default server policy is:
+#   - allow GET operations
+#   - deny non-GET unless ALLOW_WRITE_OPERATIONS=true
+#
+# Examples:
+# - getUsers
+# - getRoutingQueues
+# - postAnalyticsConversationsDetailsQuery
