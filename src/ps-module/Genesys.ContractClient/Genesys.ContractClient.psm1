@@ -22,8 +22,8 @@ function Import-GcSpec {
         [Parameter(Mandatory)] [string]$PaginationMapPath
     )
     $script:GcSpec       = Get-Content -Raw -Path $SwaggerPath | ConvertFrom-Json
-    $script:GcOperations = Get-Content -Raw -Path $OperationsPath | ConvertFrom-Json
-    $script:GcPagingMap  = Get-Content -Raw -Path $PaginationMapPath | ConvertFrom-Json
+    $script:GcOperations = Get-Content -Raw -Path $OperationsPath | ConvertFrom-Json -AsHashtable
+    $script:GcPagingMap  = Get-Content -Raw -Path $PaginationMapPath | ConvertFrom-Json -AsHashtable
     $script:GcDefinitions = $script:GcSpec.definitions
 }
 
@@ -31,13 +31,22 @@ function Get-GcOperation {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$OperationId)
     if (-not $script:GcOperations) { throw "Spec not loaded. Call Import-GcSpec first." }
-    $op = $script:GcOperations.$OperationId
+    $op = Get-GcSchemaValue -Object $script:GcOperations -Name $OperationId
     if (-not $op) {
-        foreach ($prop in $script:GcOperations.PSObject.Properties) {
-            $candidate = $prop.Value
-            if ($candidate.operationId -eq $OperationId) {
-                $op = $candidate
-                break
+        if ($script:GcOperations -is [hashtable]) {
+            foreach ($candidate in $script:GcOperations.Values) {
+                if ($candidate.operationId -ceq $OperationId) {
+                    $op = $candidate
+                    break
+                }
+            }
+        } else {
+            foreach ($prop in $script:GcOperations.PSObject.Properties) {
+                $candidate = $prop.Value
+                if ($candidate.operationId -ceq $OperationId) {
+                    $op = $candidate
+                    break
+                }
             }
         }
     }
@@ -54,14 +63,19 @@ function Find-GcOperation {
     if (-not $script:GcOperations) { throw "Spec not loaded. Call Import-GcSpec first." }
 
     $q = $Query.ToLowerInvariant()
-    $matches = foreach ($prop in $script:GcOperations.PSObject.Properties) {
-        $op = $prop.Value
+    $opList = if ($script:GcOperations -is [hashtable]) {
+        $script:GcOperations.Values
+    } else {
+        $script:GcOperations.PSObject.Properties | ForEach-Object { $_.Value }
+    }
+
+    $foundOps = foreach ($op in $opList) {
         $summary = if ($null -ne $op.summary) { [string]$op.summary } else { '' }
         $description = if ($null -ne $op.description) { [string]$op.description } else { '' }
         $hay = @($op.operationId, $op.method, $op.path, $summary, $description, ($op.tags -join ' ')) -join ' '
         if ($hay.ToLowerInvariant().Contains($q)) { $op }
     }
-    $matches | Select-Object -First $Top
+    $foundOps | Select-Object -First $Top
 }
 
 function New-GcClient {
@@ -226,7 +240,9 @@ function Test-GcSchemaValue {
 
     $type = [string](Get-GcSchemaValue -Object $resolved -Name 'type')
     $props = Get-GcSchemaValue -Object $resolved -Name 'properties'
-    $required = @(Get-GcSchemaValue -Object $resolved -Name 'required')
+    $requiredRaw = Get-GcSchemaValue -Object $resolved -Name 'required'
+    $required = @()
+    if ($null -ne $requiredRaw) { $required = @($requiredRaw) }
 
     if ($type -eq 'object' -or $props -or $required.Count -gt 0) {
         $isObj = $Value -is [hashtable] -or $Value -is [pscustomobject]
@@ -249,12 +265,16 @@ function Test-GcSchemaValue {
 
         $known = @{}
         if ($props) {
-            foreach ($p in $props.PSObject.Properties) { $known[$p.Name] = $p.Value }
+            if ($props -is [hashtable]) {
+                foreach ($k in $props.Keys) { $known[[string]$k] = $props[$k] }
+            } else {
+                foreach ($p in $props.PSObject.Properties) { $known[$p.Name] = $p.Value }
+            }
         }
 
         foreach ($k in $actual.Keys) {
             if ($known.ContainsKey($k)) {
-                $childErrs = Test-GcSchemaValue -Value $actual[$k] -Schema $known[$k] -Path "$Path.$k"
+                $childErrs = @(Test-GcSchemaValue -Value $actual[$k] -Schema $known[$k] -Path "$Path.$k")
                 foreach ($e in $childErrs) { $errs.Add($e) }
             } elseif ((Get-GcSchemaValue -Object $resolved -Name 'additionalProperties') -ne $true) {
                 $errs.Add("${Path}.${k}: unknown field")
@@ -273,7 +293,7 @@ function Test-GcSchemaValue {
         if ($itemsSchema) {
             $i = 0
             foreach ($item in $Value) {
-                $childErrs = Test-GcSchemaValue -Value $item -Schema $itemsSchema -Path "$Path[$i]"
+                $childErrs = @(Test-GcSchemaValue -Value $item -Schema $itemsSchema -Path "$Path[$i]")
                 foreach ($e in $childErrs) { $errs.Add($e) }
                 $i++
             }
@@ -317,7 +337,7 @@ function Assert-BodyAgainstSpec {
 
     $bodySchema = if ($bodyParam) { Get-GcSchemaValue -Object $bodyParam -Name 'schema' } else { $null }
     if ($bodyParam -and $null -ne $Body -and $bodySchema) {
-        $errs = Test-GcSchemaValue -Value $Body -Schema $bodySchema -Path '$body'
+        $errs = @(Test-GcSchemaValue -Value $Body -Schema $bodySchema -Path '$body')
         if ($errs.Count -gt 0) {
             $preview = ($errs | Select-Object -First 12) -join '; '
             throw "Body schema validation failed for operationId '$($Operation.operationId)': $preview"
@@ -400,7 +420,7 @@ function Invoke-GcApiAll {
     $safeParams = if ($null -ne $Params) { $Params } else { @{} }
     Assert-ParamsAgainstSpec -Operation $op -Params $safeParams
     Assert-BodyAgainstSpec -Operation $op -Body $Body
-    $map = $script:GcPagingMap.$OperationId
+    $map = Get-GcSchemaValue -Object $script:GcPagingMap -Name $OperationId
     if (-not $map) { $map = [pscustomobject]@{ type = $op.pagingType; itemsPath = $op.responseItemsPath } }
 
     $ptype = $map.type
@@ -582,41 +602,41 @@ function Invoke-GcApiAll {
         # stop conditions + next token
         $next = $null
         if ($ptype -eq "NEXT_URI") {
-            $next = $resp.nextUri
+            $next = $nextUriVal
             if (-not $next) { $audit.Add([pscustomobject]@{ page=$page; stop="missingNextUri" }); break }
             $marker = "NEXT_URI:$next"
             if ($seen.Contains($marker)) { $audit.Add([pscustomobject]@{ page=$page; stop="repeatNextUri" }); break }
             [void]$seen.Add($marker)
         }
         elseif ($ptype -eq "NEXT_PAGE") {
-            $next = $resp.nextPage
+            $next = $nextPageVal
             if (-not $next) { $audit.Add([pscustomobject]@{ page=$page; stop="missingNextPage" }); break }
             $marker = "NEXT_PAGE:$next"
             if ($seen.Contains($marker)) { $audit.Add([pscustomobject]@{ page=$page; stop="repeatNextPage" }); break }
             [void]$seen.Add($marker)
         }
         elseif ($ptype -eq "CURSOR") {
-            $cursor = $resp.cursor
+            $cursor = $cursorVal
             if (-not $cursor) { $audit.Add([pscustomobject]@{ page=$page; stop="missingCursor" }); break }
             $marker = "CURSOR:$cursor"
             if ($seen.Contains($marker)) { $audit.Add([pscustomobject]@{ page=$page; stop="repeatCursor" }); break }
             [void]$seen.Add($marker)
         }
         elseif ($ptype -eq "AFTER") {
-            $after = $resp.after
+            $after = $afterVal
             if (-not $after) { $audit.Add([pscustomobject]@{ page=$page; stop="missingAfter" }); break }
             $marker = "AFTER:$after"
             if ($seen.Contains($marker)) { $audit.Add([pscustomobject]@{ page=$page; stop="repeatAfter" }); break }
             [void]$seen.Add($marker)
         }
         elseif ($ptype -eq "PAGE_NUMBER") {
-            $pn = $resp.pageNumber
-            $pc = $resp.pageCount
+            $pn = $pageNumberVal
+            $pc = $pageCountVal
             if ($pc -and $pn -and ($pn -ge $pc)) { $audit.Add([pscustomobject]@{ page=$page; stop="reachedPageCount"; pageNumber=$pn; pageCount=$pc }); break }
             $pageNumber++
         }
         elseif ($ptype -eq "TOTALHITS") {
-            $th = $resp.totalHits
+            $th = $totalHitsVal
             if (-not $th) { $audit.Add([pscustomobject]@{ page=$page; stop="missingTotalHits" }); break }
             if (($pageNumber * $PageSize) -ge $th) { $audit.Add([pscustomobject]@{ page=$page; stop="reachedTotalHits"; totalHits=$th }); break }
             $pageNumber++

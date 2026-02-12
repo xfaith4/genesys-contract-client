@@ -10,13 +10,13 @@ Uses operationIds:
   - getAnalyticsConversationDetails
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 param(
     [Parameter(Mandatory)]
     [string]$ConversationId
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot '00-Setup.ps1')
 

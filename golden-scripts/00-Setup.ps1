@@ -50,7 +50,7 @@ function Export-GoldenReport {
 }
 
 # Import module
-$modulePath = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\src\ps-module\Genesys.ContractClient\Genesys.ContractClient.psd1')).Path ''
+$modulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\ps-module\Genesys.ContractClient\Genesys.ContractClient.psd1')).Path
 Import-Module $modulePath -Force
 
 # Load spec + catalogs (fast; avoids runtime swagger parsing for every script)

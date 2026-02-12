@@ -1,6 +1,5 @@
 ---
 playbook: conversations
-version: 1
 source:
   swagger: specs/swagger.json
   operations_catalog: generated/operations.json

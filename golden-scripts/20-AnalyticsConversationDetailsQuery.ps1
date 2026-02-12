@@ -17,9 +17,6 @@ Notes:
 - Paging is handled by Invoke-GcApiAll via TOTALHITS (paging.pageNumber/pageSize).
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 param(
     [Parameter(Mandatory)]
     [string]$Interval,
@@ -35,6 +32,9 @@ param(
     [ValidateRange(1,2000000)]
     [int]$Limit = 200000
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot '00-Setup.ps1')
 

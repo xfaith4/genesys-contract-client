@@ -6,9 +6,6 @@ Uses operationId:
   - postAnalyticsConversationsDetailsQuery
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 param(
     [Parameter(Mandatory)]
     [string]$Interval,
@@ -22,6 +19,9 @@ param(
     [ValidateRange(1, 500000)]
     [int]$Limit = 100000
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot '00-Setup.ps1')
 
@@ -97,7 +97,7 @@ $rows = @($result.items) | ForEach-Object {
         conversationStart = $_.conversationStart
         conversationEnd = $_.conversationEnd
         divisionIds = (@($_.divisionIds) -join ',')
-        queueIds = (($queueSet.ToArray()) -join ',')
+        queueIds = (@($queueSet) -join ',')
         originatingDirection = $_.originatingDirection
         participantsCount = @($_.participants).Count
         segmentsCount = @($_.segments).Count

@@ -6,9 +6,6 @@ Uses operationId:
   - postAnalyticsConversationsDetailsQuery
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 param(
     [Parameter(Mandatory)]
     [string]$Interval,
@@ -19,6 +16,9 @@ param(
     [ValidateRange(1, 500000)]
     [int]$Limit = 100000
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot '00-Setup.ps1')
 
