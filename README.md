@@ -15,6 +15,7 @@ This repo intentionally focuses on **eliminating guessing**:
 - `generated/catalog-collisions.json` — case-insensitive operationId key collisions remapped for PowerShell compatibility
 - `playbooks/conversations.yaml` — guide-derived, contract-bound workflow map for conversations use cases
 - `docs/stakeholder-map.md` — stakeholder focus map (API Explorer, AudioHook, CX as Code, SDK, Guides)
+- `src/contract-core` — shared TypeScript contract engine used by delivery surfaces
 - `src/ps-module/Genesys.ContractClient` — PowerShell engineer-facing module (PS 5.1+)
 - `src/mcp-server` — Node/TS HTTP service (easy to wrap as MCP tooling)
 
@@ -76,6 +77,9 @@ npm run build
 npm start
 # POST http://localhost:8787/describe, /call, /callAll
 ```
+
+`npm run build` auto-bootstraps `src/contract-core` dependencies when needed.  
+Use `npm run setup:core` only if you want to pre-install them explicitly.
 
 MCP runtime hardening controls:
 - `MCP_MAX_SESSIONS` (default `256`): caps active MCP sessions; new initialize requests return `429` when full.

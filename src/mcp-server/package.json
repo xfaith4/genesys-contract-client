@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build:core && tsx watch src/index.ts",
+    "setup:core": "npm --prefix ../contract-core ci",
+    "build:core": "node scripts/build-core.mjs",
+    "build": "npm run build:core && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "npm run build && node scripts/run-node-tests.mjs",
     "test:break": "npm run build && node --test dist/mcp/mcp.integration.test.js dist/smoke.test.js",

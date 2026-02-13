@@ -8,6 +8,7 @@ Protocol-native MCP server using **Streamable HTTP** (`@modelcontextprotocol/sdk
 - `genesys.callAll`
 
 The server enforces contract validation, deterministic pagination, and governance controls from the catalog and registry files.
+Core contract logic is sourced from `../contract-core`.
 
 ## Run
 
@@ -16,6 +17,9 @@ cd src/mcp-server
 npm install
 npm run dev
 ```
+
+`npm run build`/`npm run dev` auto-bootstrap `../contract-core` dependencies when missing or stale.  
+Run `npm run setup:core` only when you want to pre-install core dependencies explicitly.
 
 Production build:
 

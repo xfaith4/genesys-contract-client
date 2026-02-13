@@ -1,5 +1,7 @@
 # Local dependencies/build output
 src/mcp-server/node_modules/
+src/contract-core/node_modules/
+src/contract-core/dist/
 
 # Generated during local test/build
 src/mcp-server/dist/*.test.js
