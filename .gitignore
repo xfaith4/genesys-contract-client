@@ -4,6 +4,7 @@ src/mcp-server/node_modules/
 # Generated during local test/build
 src/mcp-server/dist/*.test.js
 golden-scripts/out/
+reports/test-runs/
 
 # Editor/system noise
 .DS_Store
