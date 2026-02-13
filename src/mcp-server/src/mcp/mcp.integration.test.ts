@@ -34,6 +34,10 @@ type JsonRpcEnvelope = {
   error?: Record<string, unknown>;
 };
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function parseStreamableJsonRpc(text: string): JsonRpcEnvelope {
   const trimmed = text.trim();
   if (trimmed.startsWith("{")) {
@@ -59,6 +63,7 @@ async function postMcp(
   url: string,
   payload: Record<string, unknown>,
   sessionId?: string,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{
   response: Response;
   message: JsonRpcEnvelope;
@@ -66,6 +71,7 @@ async function postMcp(
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
+    ...extraHeaders,
   };
   if (sessionId) headers["mcp-session-id"] = sessionId;
 
@@ -78,6 +84,22 @@ async function postMcp(
   return {
     response,
     message: parseStreamableJsonRpc(bodyText),
+  };
+}
+
+function makeInitializePayload(id: number): Record<string, unknown> {
+  return {
+    jsonrpc: "2.0",
+    id,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: {
+        name: "mcp-integration-test",
+        version: "1.0.0",
+      },
+    },
   };
 }
 
@@ -115,19 +137,7 @@ async function startTestServer(t: test.TestContext, core: GenesysCoreService): P
 }
 
 async function initializeSession(mcpUrl: string): Promise<string> {
-  const initialize = await postMcp(mcpUrl, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: {
-        name: "mcp-integration-test",
-        version: "1.0.0",
-      },
-    },
-  });
+  const initialize = await postMcp(mcpUrl, makeInitializePayload(1));
 
   assert.equal(initialize.response.status, 200);
   assert.ok(!initialize.message.error);
@@ -252,19 +262,7 @@ test("MCP initialize is rejected when max sessions are reached", async (t) => {
   const { mcpUrl } = await startTestServer(t, core);
   const sessionId = await initializeSession(mcpUrl);
 
-  const blocked = await postMcp(mcpUrl, {
-    jsonrpc: "2.0",
-    id: 99,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: {
-        name: "mcp-integration-test",
-        version: "1.0.0",
-      },
-    },
-  });
+  const blocked = await postMcp(mcpUrl, makeInitializePayload(99));
   assert.equal(blocked.response.status, 429);
   assert.equal(blocked.message.error?.message, "MCP session limit reached (1).");
 
@@ -273,6 +271,199 @@ test("MCP initialize is rejected when max sessions are reached", async (t) => {
     headers: {
       accept: "application/json, text/event-stream",
       "mcp-session-id": sessionId,
+    },
+  });
+  assert.equal(terminate.status, 200);
+  await terminate.text();
+});
+
+test("MCP concurrent initialize enforces max sessions under race", async (t) => {
+  const maxSessions = 3;
+  const attempts = 12;
+  const core = createFixtureCore({
+    mcpMaxSessions: maxSessions,
+    mcpSessionTtlMs: 60000,
+  });
+  const { mcpUrl, healthUrl } = await startTestServer(t, core);
+
+  const initResults = await Promise.all(
+    Array.from({ length: attempts }).map((_v, idx) => postMcp(mcpUrl, makeInitializePayload(1000 + idx))),
+  );
+
+  const successResults = initResults.filter((r) => r.response.status === 200);
+  const blockedResults = initResults.filter((r) => r.response.status === 429);
+
+  assert.equal(successResults.length, maxSessions);
+  assert.equal(blockedResults.length, attempts - maxSessions);
+  for (const blocked of blockedResults) {
+    assert.equal(blocked.message.error?.message, `MCP session limit reached (${maxSessions}).`);
+  }
+
+  const health = await fetch(healthUrl);
+  assert.equal(health.status, 200);
+  const healthBody = (await health.json()) as Record<string, unknown>;
+  assert.equal(healthBody.activeSessions, maxSessions);
+
+  for (const result of successResults) {
+    const sessionId = result.response.headers.get("mcp-session-id");
+    assert.ok(sessionId, "Expected successful initialize to include mcp-session-id.");
+    const terminate = await fetch(mcpUrl, {
+      method: "DELETE",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId!,
+      },
+    });
+    assert.equal(terminate.status, 200);
+    await terminate.text();
+  }
+});
+
+test("MCP max-session gate remains stable across repeated flood rounds", async (t) => {
+  const maxSessions = 2;
+  const attemptsPerRound = 8;
+  const rounds = 6;
+  const core = createFixtureCore({
+    mcpMaxSessions: maxSessions,
+    mcpSessionTtlMs: 60000,
+  });
+  const { mcpUrl } = await startTestServer(t, core);
+
+  for (let round = 1; round <= rounds; round++) {
+    const initResults = await Promise.all(
+      Array.from({ length: attemptsPerRound }).map((_v, idx) => postMcp(mcpUrl, makeInitializePayload(round * 100 + idx))),
+    );
+    const successResults = initResults.filter((r) => r.response.status === 200);
+    const blockedResults = initResults.filter((r) => r.response.status === 429);
+
+    assert.equal(successResults.length, maxSessions);
+    assert.equal(blockedResults.length, attemptsPerRound - maxSessions);
+
+    for (const blocked of blockedResults) {
+      assert.equal(blocked.message.error?.message, `MCP session limit reached (${maxSessions}).`);
+    }
+
+    for (const result of successResults) {
+      const sessionId = result.response.headers.get("mcp-session-id");
+      assert.ok(sessionId, "Expected successful initialize to include mcp-session-id.");
+      const terminate = await fetch(mcpUrl, {
+        method: "DELETE",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId!,
+        },
+      });
+      assert.equal(terminate.status, 200);
+      await terminate.text();
+    }
+  }
+});
+
+test("MCP session TTL expires idle sessions and rejects stale session id", async (t) => {
+  const sessionTtlMs = 120;
+  const core = createFixtureCore({
+    mcpSessionTtlMs: sessionTtlMs,
+    mcpMaxSessions: 10,
+  });
+  const { mcpUrl, healthUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
+
+  const deadline = Date.now() + 5000;
+  let active = 1;
+  while (Date.now() < deadline) {
+    const health = await fetch(healthUrl);
+    assert.equal(health.status, 200);
+    const healthBody = (await health.json()) as Record<string, unknown>;
+    active = Number(healthBody.activeSessions ?? -1);
+    if (active === 0) {
+      break;
+    }
+    await wait(30);
+  }
+  assert.equal(active, 0, "Expected idle session to expire and be cleaned up.");
+
+  const staleUse = await postMcp(
+    mcpUrl,
+    {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/list",
+      params: {},
+    },
+    sessionId,
+  );
+  assert.equal(staleUse.response.status, 404);
+  assert.equal(staleUse.message.error?.message, `Unknown MCP session '${sessionId}'.`);
+});
+
+test("MCP delete/use race never returns server error and session is eventually closed", async (t) => {
+  const core = createFixtureCore({
+    mcpSessionTtlMs: 60000,
+  });
+  const { mcpUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
+
+  const [listResult, terminate] = await Promise.all([
+    postMcp(
+      mcpUrl,
+      {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/list",
+        params: {},
+      },
+      sessionId,
+    ),
+    fetch(mcpUrl, {
+      method: "DELETE",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId,
+      },
+    }),
+  ]);
+
+  const terminateBody = await terminate.text();
+  assert.equal(terminate.status, 200, `Unexpected delete response body: ${terminateBody}`);
+  assert.ok([200, 404].includes(listResult.response.status), `Unexpected tools/list status ${listResult.response.status}`);
+
+  const afterRace = await postMcp(
+    mcpUrl,
+    {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/list",
+      params: {},
+    },
+    sessionId,
+  );
+  assert.equal(afterRace.response.status, 404);
+});
+
+test("MCP endpoint enforces x-server-key when configured", async (t) => {
+  const serverApiKey = "test-api-key";
+  const core = createFixtureCore({
+    serverApiKey,
+  });
+  const { mcpUrl } = await startTestServer(t, core);
+
+  const unauthorized = await postMcp(mcpUrl, makeInitializePayload(501));
+  assert.equal(unauthorized.response.status, 401);
+  assert.equal(unauthorized.message.error?.message, "Unauthorized: missing/invalid X-Server-Key.");
+
+  const authorized = await postMcp(mcpUrl, makeInitializePayload(502), undefined, {
+    "x-server-key": serverApiKey,
+  });
+  assert.equal(authorized.response.status, 200);
+  const sessionId = authorized.response.headers.get("mcp-session-id");
+  assert.ok(sessionId, "Expected mcp-session-id for authorized initialize.");
+
+  const terminate = await fetch(mcpUrl, {
+    method: "DELETE",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId!,
+      "x-server-key": serverApiKey,
     },
   });
   assert.equal(terminate.status, 200);

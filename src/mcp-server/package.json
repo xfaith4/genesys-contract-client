@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "npm run build && node scripts/run-node-tests.mjs",
+    "test:break": "npm run build && node --test dist/mcp/mcp.integration.test.js dist/smoke.test.js",
+    "test:break:loop": "npm run build && node scripts/run-break-tests.mjs",
     "test:pester": "pwsh -NoLogo -NoProfile -Command \"Invoke-Pester -Path '..\\\\..\\\\tests\\\\Genesys.ContractClient.Tests.ps1' -Output Normal\""
   },
   "dependencies": {
