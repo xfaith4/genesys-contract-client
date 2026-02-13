@@ -121,6 +121,28 @@ function createGenesysMcpServer(core) {
 export function createMcpApp(core) {
     const app = createMcpExpressApp({ host: core.config.host });
     const sessions = new Map();
+    function scheduleSessionTimeout(sessionId, state) {
+        state.expiresAt = Date.now() + core.config.mcpSessionTtlMs;
+        if (state.timeout) {
+            clearTimeout(state.timeout);
+        }
+        state.timeout = setTimeout(() => {
+            void closeSession(sessionId);
+        }, core.config.mcpSessionTtlMs);
+        state.timeout.unref();
+    }
+    function createSessionState(sessionId, server, transport) {
+        const state = {
+            sessionId,
+            server,
+            transport,
+            expiresAt: 0,
+            timeout: null,
+            closing: false,
+        };
+        scheduleSessionTimeout(sessionId, state);
+        return state;
+    }
     app.disable("x-powered-by");
     app.use((req, res, next) => {
         const supplied = String(req.header("x-request-id") || "").trim();
@@ -144,13 +166,26 @@ export function createMcpApp(core) {
         });
         next();
     });
+    async function closeSessionState(state, closeTransport) {
+        if (state.closing) {
+            return;
+        }
+        state.closing = true;
+        sessions.delete(state.sessionId);
+        if (state.timeout) {
+            clearTimeout(state.timeout);
+            state.timeout = null;
+        }
+        if (closeTransport) {
+            await state.transport.close().catch(() => undefined);
+        }
+        await state.server.close().catch(() => undefined);
+    }
     async function closeSession(sessionId) {
         const state = sessions.get(sessionId);
         if (!state)
             return;
-        sessions.delete(sessionId);
-        await state.transport.close().catch(() => undefined);
-        await state.server.close().catch(() => undefined);
+        await closeSessionState(state, true);
     }
     function writeJsonRpcError(res, code, mapped) {
         if (res.headersSent)
@@ -171,6 +206,7 @@ export function createMcpApp(core) {
                     writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
                     return;
                 }
+                scheduleSessionTimeout(sessionId, state);
                 await state.transport.handleRequest(req, res, req.body);
                 return;
             }
@@ -178,19 +214,28 @@ export function createMcpApp(core) {
                 writeJsonRpcError(res, -32000, { status: 400, message: "Missing mcp-session-id header for non-initialize request." });
                 return;
             }
+            if (sessions.size >= core.config.mcpMaxSessions) {
+                writeJsonRpcError(res, -32004, {
+                    status: 429,
+                    message: `MCP session limit reached (${core.config.mcpMaxSessions}).`,
+                });
+                return;
+            }
             const mcpServer = createGenesysMcpServer(core);
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: (newSessionId) => {
-                    sessions.set(newSessionId, { server: mcpServer, transport });
+                    sessions.set(newSessionId, createSessionState(newSessionId, mcpServer, transport));
                 },
             });
             transport.onclose = () => {
                 const sid = transport.sessionId;
-                if (sid) {
-                    sessions.delete(sid);
-                }
-                void mcpServer.close().catch(() => undefined);
+                if (!sid)
+                    return;
+                const state = sessions.get(sid);
+                if (!state)
+                    return;
+                void closeSessionState(state, false);
             };
             try {
                 await mcpServer.connect(transport);
@@ -220,6 +265,7 @@ export function createMcpApp(core) {
                 writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
                 return;
             }
+            scheduleSessionTimeout(sessionId, state);
             await state.transport.handleRequest(req, res);
         }
         catch (error) {
@@ -253,6 +299,8 @@ export function createMcpApp(core) {
             mcpPath: core.config.mcpPath,
             legacyHttpApi: core.config.legacyHttpApi,
             activeSessions: sessions.size,
+            maxSessions: core.config.mcpMaxSessions,
+            sessionTtlMs: core.config.mcpSessionTtlMs,
         });
     });
     return app;

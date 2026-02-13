@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import Ajv from "ajv";
 
 import { GenesysCoreService } from "../core/service.js";
-import { Operation, PagingMapEntry } from "../core/types.js";
+import { CoreConfig, Operation, PagingMapEntry } from "../core/types.js";
 import { createMcpApp } from "./server.js";
 
 const fixtureOperations: Record<string, Operation> = {
@@ -81,8 +81,8 @@ async function postMcp(
   };
 }
 
-test("MCP Streamable HTTP server exposes required tools and executes searchOperations", async (t) => {
-  const core = new GenesysCoreService(process.cwd(), {
+function createFixtureCore(configOverrides: Partial<CoreConfig> = {}): GenesysCoreService {
+  return new GenesysCoreService(process.cwd(), {
     operations: fixtureOperations,
     pagingMap: fixturePagingMap,
     definitions: {},
@@ -95,9 +95,12 @@ test("MCP Streamable HTTP server exposes required tools and executes searchOpera
       allowWriteOperations: false,
       legacyHttpApi: false,
       logRequestPayloads: false,
+      ...configOverrides,
     },
   });
+}
 
+async function startTestServer(t: test.TestContext, core: GenesysCoreService): Promise<{ mcpUrl: string; healthUrl: string }> {
   const app = createMcpApp(core);
   const server = app.listen(0, "127.0.0.1");
   t.after(async () => {
@@ -107,7 +110,11 @@ test("MCP Streamable HTTP server exposes required tools and executes searchOpera
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
   const address = server.address() as AddressInfo;
   const mcpUrl = `http://127.0.0.1:${address.port}/mcp`;
+  const healthUrl = `http://127.0.0.1:${address.port}/healthz`;
+  return { mcpUrl, healthUrl };
+}
 
+async function initializeSession(mcpUrl: string): Promise<string> {
   const initialize = await postMcp(mcpUrl, {
     jsonrpc: "2.0",
     id: 1,
@@ -127,6 +134,13 @@ test("MCP Streamable HTTP server exposes required tools and executes searchOpera
 
   const sessionId = initialize.response.headers.get("mcp-session-id");
   assert.ok(sessionId && sessionId.trim().length > 0, "Expected mcp-session-id response header.");
+  return sessionId;
+}
+
+test("MCP Streamable HTTP server exposes required tools and executes searchOperations", async (t) => {
+  const core = createFixtureCore();
+  const { mcpUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
 
   const listTools = await postMcp(
     mcpUrl,
@@ -185,6 +199,80 @@ test("MCP Streamable HTTP server exposes required tools and executes searchOpera
     headers: {
       accept: "application/json, text/event-stream",
       "mcp-session-id": sessionId!,
+    },
+  });
+  assert.equal(terminate.status, 200);
+  await terminate.text();
+});
+
+test("MCP session delete closes state and rejects reuse", async (t) => {
+  const core = createFixtureCore();
+  const { mcpUrl, healthUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
+
+  const healthBefore = await fetch(healthUrl);
+  assert.equal(healthBefore.status, 200);
+  const bodyBefore = (await healthBefore.json()) as Record<string, unknown>;
+  assert.equal(bodyBefore.activeSessions, 1);
+
+  const terminate = await fetch(mcpUrl, {
+    method: "DELETE",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId,
+    },
+  });
+  assert.equal(terminate.status, 200);
+  await terminate.text();
+
+  const healthAfter = await fetch(healthUrl);
+  assert.equal(healthAfter.status, 200);
+  const bodyAfter = (await healthAfter.json()) as Record<string, unknown>;
+  assert.equal(bodyAfter.activeSessions, 0);
+
+  const reuse = await postMcp(
+    mcpUrl,
+    {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    },
+    sessionId,
+  );
+  assert.equal(reuse.response.status, 404);
+  assert.equal(reuse.message.error?.message, `Unknown MCP session '${sessionId}'.`);
+});
+
+test("MCP initialize is rejected when max sessions are reached", async (t) => {
+  const core = createFixtureCore({
+    mcpMaxSessions: 1,
+    mcpSessionTtlMs: 60000,
+  });
+  const { mcpUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
+
+  const blocked = await postMcp(mcpUrl, {
+    jsonrpc: "2.0",
+    id: 99,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: {
+        name: "mcp-integration-test",
+        version: "1.0.0",
+      },
+    },
+  });
+  assert.equal(blocked.response.status, 429);
+  assert.equal(blocked.message.error?.message, "MCP session limit reached (1).");
+
+  const terminate = await fetch(mcpUrl, {
+    method: "DELETE",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId,
     },
   });
   assert.equal(terminate.status, 200);

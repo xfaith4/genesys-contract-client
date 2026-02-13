@@ -442,6 +442,8 @@ export class GenesysCoreService {
       serverManagedCredentials: this.serverClientConfig !== null,
       allowClientOverrides: this.config.allowClientOverrides,
       transport: "mcp-streamable-http",
+      mcpMaxSessions: this.config.mcpMaxSessions,
+      mcpSessionTtlMs: this.config.mcpSessionTtlMs,
       legacyHttpApi: this.config.legacyHttpApi,
     });
   }

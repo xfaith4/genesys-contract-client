@@ -11,8 +11,12 @@ import { GenesysCoreService } from "../core/service.js";
 import { parsePositiveInt } from "../core/utils.js";
 
 type SessionState = {
+  sessionId: string;
   server: McpServer;
   transport: StreamableHTTPServerTransport;
+  expiresAt: number;
+  timeout: ReturnType<typeof setTimeout> | null;
+  closing: boolean;
 };
 
 const describeInputSchema = z.strictObject({
@@ -159,6 +163,34 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
   const app = createMcpExpressApp({ host: core.config.host });
   const sessions = new Map<string, SessionState>();
 
+  function scheduleSessionTimeout(sessionId: string, state: SessionState): void {
+    state.expiresAt = Date.now() + core.config.mcpSessionTtlMs;
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+    }
+    state.timeout = setTimeout(() => {
+      void closeSession(sessionId);
+    }, core.config.mcpSessionTtlMs);
+    state.timeout.unref();
+  }
+
+  function createSessionState(
+    sessionId: string,
+    server: McpServer,
+    transport: StreamableHTTPServerTransport,
+  ): SessionState {
+    const state: SessionState = {
+      sessionId,
+      server,
+      transport,
+      expiresAt: 0,
+      timeout: null,
+      closing: false,
+    };
+    scheduleSessionTimeout(sessionId, state);
+    return state;
+  }
+
   app.disable("x-powered-by");
   app.use((req, res, next) => {
     const supplied = String(req.header("x-request-id") || "").trim();
@@ -185,12 +217,26 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
     next();
   });
 
+  async function closeSessionState(state: SessionState, closeTransport: boolean): Promise<void> {
+    if (state.closing) {
+      return;
+    }
+    state.closing = true;
+    sessions.delete(state.sessionId);
+    if (state.timeout) {
+      clearTimeout(state.timeout);
+      state.timeout = null;
+    }
+    if (closeTransport) {
+      await state.transport.close().catch(() => undefined);
+    }
+    await state.server.close().catch(() => undefined);
+  }
+
   async function closeSession(sessionId: string): Promise<void> {
     const state = sessions.get(sessionId);
     if (!state) return;
-    sessions.delete(sessionId);
-    await state.transport.close().catch(() => undefined);
-    await state.server.close().catch(() => undefined);
+    await closeSessionState(state, true);
   }
 
   function writeJsonRpcError(res: express.Response, code: number, mapped: { status: number; message: string; details?: unknown }): void {
@@ -213,6 +259,7 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
           writeJsonRpcError(res, -32001, { status: 404, message: `Unknown MCP session '${sessionId}'.` });
           return;
         }
+        scheduleSessionTimeout(sessionId, state);
         await state.transport.handleRequest(req, res, req.body);
         return;
       }
@@ -222,20 +269,28 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
         return;
       }
 
+      if (sessions.size >= core.config.mcpMaxSessions) {
+        writeJsonRpcError(res, -32004, {
+          status: 429,
+          message: `MCP session limit reached (${core.config.mcpMaxSessions}).`,
+        });
+        return;
+      }
+
       const mcpServer = createGenesysMcpServer(core);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (newSessionId) => {
-          sessions.set(newSessionId, { server: mcpServer, transport });
+          sessions.set(newSessionId, createSessionState(newSessionId, mcpServer, transport));
         },
       });
 
       transport.onclose = () => {
         const sid = transport.sessionId;
-        if (sid) {
-          sessions.delete(sid);
-        }
-        void mcpServer.close().catch(() => undefined);
+        if (!sid) return;
+        const state = sessions.get(sid);
+        if (!state) return;
+        void closeSessionState(state, false);
       };
 
       try {
@@ -267,6 +322,7 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
         return;
       }
 
+      scheduleSessionTimeout(sessionId, state);
       await state.transport.handleRequest(req, res);
     } catch (error) {
       writeJsonRpcError(res, -32603, core.mapErrorToHttp(error));
@@ -302,6 +358,8 @@ export function createMcpApp(core: GenesysCoreService): express.Express {
       mcpPath: core.config.mcpPath,
       legacyHttpApi: core.config.legacyHttpApi,
       activeSessions: sessions.size,
+      maxSessions: core.config.mcpMaxSessions,
+      sessionTtlMs: core.config.mcpSessionTtlMs,
     });
   });
 

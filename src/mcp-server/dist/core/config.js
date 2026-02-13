@@ -37,6 +37,8 @@ export function createCoreConfig(repoRoot, overrides = {}) {
         logRequestPayloads: readBoolEnv("LOG_REQUEST_PAYLOADS", true),
         mcpPath: process.env.MCP_PATH || "/mcp",
         healthPath: process.env.HEALTH_PATH || "/healthz",
+        mcpMaxSessions: readIntEnv("MCP_MAX_SESSIONS", 256, 1, 10_000),
+        mcpSessionTtlMs: readIntEnv("MCP_SESSION_TTL_MS", 900_000, 1_000, 86_400_000),
         legacyHttpApi: readBoolEnv("LEGACY_HTTP_API", false),
         host: process.env.HOST || "127.0.0.1",
         port: readIntEnv("PORT", 8787, 1, 65535),

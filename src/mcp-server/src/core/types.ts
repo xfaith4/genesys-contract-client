@@ -152,6 +152,8 @@ export type CoreConfig = {
   logRequestPayloads: boolean;
   mcpPath: string;
   healthPath: string;
+  mcpMaxSessions: number;
+  mcpSessionTtlMs: number;
   legacyHttpApi: boolean;
   host: string;
   port: number;
@@ -163,4 +165,3 @@ export type CoreServiceOptions = {
   pagingMap?: Record<string, PagingMapEntry>;
   definitions?: Record<string, unknown>;
 };
-
