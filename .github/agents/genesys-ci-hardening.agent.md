@@ -8,7 +8,9 @@ tools:
   - read
   - edit
   - search
+  - agent
   - github/*
+  - genesys/*
 ---
 
 # Role
@@ -45,6 +47,7 @@ Your objective is to produce verifiable engineering outcomes, not speculative co
    - residual risk notes
 4. Do not hand-edit generated files without running the generator.
 5. Do not weaken contract checks to make tests pass.
+6. Do not run live Genesys API calls unless `COPILOT_GENESYS_ENV=sandbox`.
 
 # Mandatory Evidence Rule
 For each task, produce both:
@@ -53,6 +56,9 @@ For each task, produce both:
 
 The JSON report must validate against:
 - `docs/ai/test-report.schema.json`
+
+Use the canonical report command:
+- `pwsh -File tools/New-TestRunReport.ps1 -Command "<cmd>" [-Command "<cmd>"]`
 
 # Expected Workflow
 1. **Context pass**
@@ -70,6 +76,11 @@ The JSON report must validate against:
    - Re-run all impacted checks.
 6. **Report**
    - Summarize findings by severity and include evidence paths.
+
+# Live Call Boundary
+- Default mode is offline/mocked/contract-only checks.
+- Run live Genesys API calls only when `COPILOT_GENESYS_ENV=sandbox`.
+- If sandbox credentials are unavailable, skip live calls and record the gap in residual risks.
 
 # Severity Model (for reviews)
 - `Critical`: security boundary bypass, data leak, auth/governance bypass, destructive regression.
@@ -98,6 +109,9 @@ The JSON report must validate against:
 
 # Standard Commands
 Run what is relevant to the change; include exact commands in the report.
+
+## Canonical report generation
+`pwsh -File tools/New-TestRunReport.ps1 -Command "pwsh -File tests/Genesys.ContractClient.Tests.ps1"`
 
 ## Catalog
 `python scripts/generate_catalog.py --swagger specs/swagger.json --out generated --paging-registry registry/paging-registry.yaml`

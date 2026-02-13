@@ -50,6 +50,23 @@ Invoke-GcApiAll -Client $client -OperationId "getRoutingSkills" -Params @{} -Pag
 python scripts/generate_catalog.py --swagger specs/swagger.json --out generated
 ```
 
+## Evidence report command
+
+Generate auditable test evidence (Markdown + JSON, schema-validated):
+
+```powershell
+pwsh -File tools/New-TestRunReport.ps1 `
+  -Command "pwsh -File tests/Genesys.ContractClient.Tests.ps1" `
+  -Command "pwsh -NoLogo -NoProfile -Command 'Set-Location src/mcp-server; npm test'"
+```
+
+Live Genesys checks must be explicitly marked and are skipped unless `COPILOT_GENESYS_ENV=sandbox`:
+
+```powershell
+pwsh -File tools/New-TestRunReport.ps1 `
+  -LiveCommand "<live-genesys-command>"
+```
+
 ## Node server (for Strider admins / integration)
 
 ```bash
