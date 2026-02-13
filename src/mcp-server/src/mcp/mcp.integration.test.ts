@@ -113,6 +113,9 @@ function createFixtureCore(configOverrides: Partial<CoreConfig> = {}): GenesysCo
       port: 0,
       mcpPath: "/mcp",
       healthPath: "/healthz",
+      readyPath: "/readyz",
+      statusPath: "/status",
+      metricsPath: "/metrics",
       serverApiKey: "",
       allowWriteOperations: false,
       legacyHttpApi: false,
@@ -122,7 +125,10 @@ function createFixtureCore(configOverrides: Partial<CoreConfig> = {}): GenesysCo
   });
 }
 
-async function startTestServer(t: test.TestContext, core: GenesysCoreService): Promise<{ mcpUrl: string; healthUrl: string }> {
+async function startTestServer(
+  t: test.TestContext,
+  core: GenesysCoreService,
+): Promise<{ mcpUrl: string; healthUrl: string; readyUrl: string; statusUrl: string; metricsUrl: string }> {
   const app = createMcpApp(core);
   const server = app.listen(0, "127.0.0.1");
   t.after(async () => {
@@ -133,7 +139,10 @@ async function startTestServer(t: test.TestContext, core: GenesysCoreService): P
   const address = server.address() as AddressInfo;
   const mcpUrl = `http://127.0.0.1:${address.port}/mcp`;
   const healthUrl = `http://127.0.0.1:${address.port}/healthz`;
-  return { mcpUrl, healthUrl };
+  const readyUrl = `http://127.0.0.1:${address.port}/readyz`;
+  const statusUrl = `http://127.0.0.1:${address.port}/status`;
+  const metricsUrl = `http://127.0.0.1:${address.port}/metrics`;
+  return { mcpUrl, healthUrl, readyUrl, statusUrl, metricsUrl };
 }
 
 async function initializeSession(mcpUrl: string): Promise<string> {
@@ -209,6 +218,60 @@ test("MCP Streamable HTTP server exposes required tools and executes searchOpera
     headers: {
       accept: "application/json, text/event-stream",
       "mcp-session-id": sessionId!,
+    },
+  });
+  assert.equal(terminate.status, 200);
+  await terminate.text();
+});
+
+test("MCP observability endpoints expose readiness, status, and metrics", async (t) => {
+  const core = createFixtureCore();
+  const { mcpUrl, readyUrl, statusUrl, metricsUrl } = await startTestServer(t, core);
+  const sessionId = await initializeSession(mcpUrl);
+
+  const toolCall = await postMcp(
+    mcpUrl,
+    {
+      jsonrpc: "2.0",
+      id: 31,
+      method: "tools/call",
+      params: {
+        name: "genesys.searchOperations",
+        arguments: {
+          query: "users",
+          limit: 5,
+        },
+      },
+    },
+    sessionId,
+  );
+  assert.equal(toolCall.response.status, 200);
+  assert.ok(!toolCall.message.error);
+
+  const ready = await fetch(readyUrl);
+  assert.equal(ready.status, 200);
+  const readyBody = (await ready.json()) as Record<string, unknown>;
+  assert.equal(readyBody.ok, true);
+
+  const status = await fetch(statusUrl);
+  assert.equal(status.status, 200);
+  const statusBody = (await status.json()) as Record<string, unknown>;
+  assert.equal(statusBody.ok, true);
+  assert.equal(statusBody.activeSessions, 1);
+  const topTools = (statusBody.topTools as Array<Record<string, unknown>> | undefined) ?? [];
+  assert.ok(topTools.some((entry) => entry.toolName === "genesys.searchOperations"));
+
+  const metrics = await fetch(metricsUrl);
+  assert.equal(metrics.status, 200);
+  const metricsText = await metrics.text();
+  assert.ok(metricsText.includes("mcp_requests_total{method=\"tools/call\",tool=\"genesys.searchOperations\",status=\"ok\"}"));
+  assert.ok(metricsText.includes("mcp_active_sessions 1"));
+
+  const terminate = await fetch(mcpUrl, {
+    method: "DELETE",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId,
     },
   });
   assert.equal(terminate.status, 200);

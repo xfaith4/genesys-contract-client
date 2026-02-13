@@ -43,6 +43,12 @@ npm run test:pester
 
 - MCP endpoint: `POST/GET/DELETE /mcp` (configurable via `MCP_PATH`)
 - Health endpoint: `GET /healthz` (configurable via `HEALTH_PATH`)
+- Readiness endpoint: `GET /readyz` (configurable via `READY_PATH`)
+- Status endpoint: `GET /status` (configurable via `STATUS_PATH`)
+- Metrics endpoint (Prometheus text): `GET /metrics` (configurable via `METRICS_PATH`)
+
+`/status` and `/metrics` include tool/session telemetry and should be treated as operational endpoints.
+When `SERVER_API_KEY` is configured, these endpoints require `X-Server-Key`.
 
 Legacy HTTP adapter routes (`/describe`, `/call`, `/callAll`, `/tools/invoke`) are **disabled by default** and only enabled when:
 

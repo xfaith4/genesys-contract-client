@@ -108,6 +108,30 @@ export class GenesysCoreService {
     };
   }
 
+  getCatalogSnapshot(): JsonObject {
+    return {
+      operationCount: Object.keys(this.operations).length,
+      pagingEntryCount: Object.keys(this.pagingMap).length,
+      definitionCount: Object.keys(this.definitions).length,
+    };
+  }
+
+  getReadinessSnapshot(): JsonObject {
+    const checks = {
+      catalogLoaded: Object.keys(this.operations).length > 0,
+      pagingMapLoaded: Object.keys(this.pagingMap).length > 0,
+      definitionsLoaded: this.definitions !== undefined && this.definitions !== null,
+    };
+
+    return {
+      ok: checks.catalogLoaded && checks.pagingMapLoaded && checks.definitionsLoaded,
+      checks,
+      catalog: this.getCatalogSnapshot(),
+      serverManagedCredentials: this.serverClientConfig !== null,
+      allowClientOverrides: this.config.allowClientOverrides,
+    };
+  }
+
   summarizeRequest(operationId: string, params: JsonObject | undefined, body: unknown): JsonObject {
     return summarizeRequest(operationId, params, body, this.loggingPolicy, this.redactionFields);
   }
@@ -442,6 +466,9 @@ export class GenesysCoreService {
       serverManagedCredentials: this.serverClientConfig !== null,
       allowClientOverrides: this.config.allowClientOverrides,
       transport: "mcp-streamable-http",
+      readyPath: this.config.readyPath,
+      statusPath: this.config.statusPath,
+      metricsPath: this.config.metricsPath,
       mcpMaxSessions: this.config.mcpMaxSessions,
       mcpSessionTtlMs: this.config.mcpSessionTtlMs,
       legacyHttpApi: this.config.legacyHttpApi,

@@ -84,6 +84,7 @@ Use `npm run setup:core` only if you want to pre-install them explicitly.
 MCP runtime hardening controls:
 - `MCP_MAX_SESSIONS` (default `256`): caps active MCP sessions; new initialize requests return `429` when full.
 - `MCP_SESSION_TTL_MS` (default `900000`): idle-session TTL in milliseconds; expired sessions are closed and cleaned up.
+- `READY_PATH` (default `/readyz`), `STATUS_PATH` (default `/status`), `METRICS_PATH` (default `/metrics`): observability endpoint paths.
 
 `GET /healthz` also reports `activeSessions`, `maxSessions`, and `sessionTtlMs`.
 

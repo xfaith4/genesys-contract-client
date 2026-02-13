@@ -152,6 +152,9 @@ export type CoreConfig = {
   logRequestPayloads: boolean;
   mcpPath: string;
   healthPath: string;
+  readyPath: string;
+  statusPath: string;
+  metricsPath: string;
   mcpMaxSessions: number;
   mcpSessionTtlMs: number;
   legacyHttpApi: boolean;

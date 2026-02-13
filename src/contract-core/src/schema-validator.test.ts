@@ -123,4 +123,3 @@ test("schema validator rejects unknown properties in strict mode", () => {
   assert.equal(validator.validate(op, { interval: "x" }).length, 0);
   assert.ok(validator.validate(op, { interval: "x", unexpected: true }).length > 0);
 });
-

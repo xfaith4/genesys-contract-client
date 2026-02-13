@@ -60,4 +60,3 @@ test("redactForLog masks nested secret fields", () => {
   assert.equal((redacted.nested as Record<string, unknown>).access_token, "***redacted***");
   assert.equal((redacted.nested as Record<string, unknown>).ok, true);
 });
-
