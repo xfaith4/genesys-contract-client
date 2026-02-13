@@ -1,0 +1,74 @@
+# Command
+pwsh -NoLogo -NoProfile -Command "Set-Location src/mcp-server; npm test"
+
+# Working Directory
+/home/runner/work/genesys-contract-client/genesys-contract-client
+
+# Exit Code
+0
+
+# DurationMs
+4973
+
+## STDOUT
+
+> genesys-contract-client-mcp@0.1.0 test
+> npm run build && node scripts/run-node-tests.mjs
+
+
+> genesys-contract-client-mcp@0.1.0 build
+> tsc -p tsconfig.json
+
+✔ summarizeRequest logs allowlisted fields and omits everything else (2.836925ms)
+✔ redactForLog masks nested secret fields (0.340855ms)
+✔ schema validator enforces oneOf semantics (21.732469ms)
+✔ schema validator enforces anyOf semantics (4.625135ms)
+✔ schema validator preserves allOf merge behavior (5.883773ms)
+✔ schema validator rejects unknown properties in strict mode (2.198004ms)
+{"ts":"2026-02-13T05:16:07.153Z","level":"info","event":"http.request","requestId":"6ddbe641-b4bc-44e9-9846-6d60d637a1e1","method":"POST","path":"/mcp","status":200,"durationMs":13}
+{"ts":"2026-02-13T05:16:07.167Z","level":"info","event":"http.request","requestId":"8ce7fcfe-543c-466c-9ffb-a36b2ccc08fe","method":"POST","path":"/mcp","status":200,"durationMs":5}
+{"ts":"2026-02-13T05:16:07.213Z","level":"info","event":"http.request","requestId":"02834a2b-937e-4892-b9de-f3469bc1d54a","method":"POST","path":"/mcp","status":200,"durationMs":5}
+Exception in PromiseRejectCallback:
+file:///home/runner/work/genesys-contract-client/genesys-contract-client/src/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.js:620
+    }
+    ^
+
+RangeError: Maximum call stack size exceeded
+
+Exception in PromiseRejectCallback:
+file:///home/runner/work/genesys-contract-client/genesys-contract-client/src/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.js:620
+    }
+    ^
+
+RangeError: Maximum call stack size exceeded
+
+Exception in PromiseRejectCallback:
+file:///home/runner/work/genesys-contract-client/genesys-contract-client/src/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/server/webStandardStreamableHttp.js:620
+    }
+    ^
+
+RangeError: Maximum call stack size exceeded
+
+Exception in PromiseRejectCallback:
+node:internal/process/promises:260
+  pendingUnhandledRejections.set(promise, {
+                                 ^
+
+RangeError: Maximum call stack size exceeded
+
+{"ts":"2026-02-13T05:16:07.252Z","level":"info","event":"http.request","requestId":"5c58c4dc-8013-447b-8d3f-7e442eb32235","method":"DELETE","path":"/mcp","status":200,"durationMs":37}
+✔ MCP Streamable HTTP server exposes required tools and executes searchOperations (151.808341ms)
+✔ legacy HTTP endpoints are disabled by default (955.385684ms)
+✔ legacy HTTP mode enforces X-Server-Key when enabled (918.042485ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2109.609128
+
+
+## STDERR
+
