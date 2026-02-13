@@ -1,0 +1,24 @@
+# Command
+pwsh -File tests/Genesys.ContractClient.Tests.ps1
+
+# Working Directory
+/home/runner/work/genesys-contract-client/genesys-contract-client
+
+# Exit Code
+0
+
+# DurationMs
+6624
+
+## STDOUT
+[95m
+[95mStarting discovery in 1 files.[0m
+[95mDiscovery found 4 tests in 1.9s.[0m
+[95mRunning tests.[0m
+[32m[+] /home/runner/work/genesys-contract-client/genesys-contract-client/tests/Genesys.ContractClient.Tests.ps1[0m[90m 2.43s (260ms|292ms)[0m
+[97mTests completed in 2.44s[0m
+[32mTests Passed: 4, [0m[90mFailed: 0, [0m[90mSkipped: 0, [0m[90mInconclusive: 0, [0m[37m[0m[90mNotRun: 0[0m
+
+
+## STDERR
+
