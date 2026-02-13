@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+from collections import defaultdict
 from datetime import datetime, timezone
 
 
@@ -132,6 +133,7 @@ def make_catalog(swagger, paging_registry):
     operations = {}
     paging = {}
     seen_catalog_keys = set()
+    observed_operation_ids = []
 
     for api_path, path_item in paths.items():
         for method, op_item in path_item.items():
@@ -140,6 +142,7 @@ def make_catalog(swagger, paging_registry):
                 continue
 
             op_id = op_item.get("operationId") or f"{method_l}_{api_path}"
+            observed_operation_ids.append(op_id)
             catalog_key = op_id
             suffix = 2
             while catalog_key in seen_catalog_keys:
@@ -201,7 +204,60 @@ def make_catalog(swagger, paging_registry):
                 "responseProps": top_props,
             }
 
-    return operations, paging
+    collisions = build_catalog_collisions(observed_operation_ids)
+    return operations, paging, collisions
+
+
+def build_catalog_collisions(operation_ids):
+    """
+    Build a stable collision report for operationIds that collide in case-insensitive
+    environments (e.g., PowerShell object-property lookups), plus exact duplicate IDs.
+    """
+    case_groups = defaultdict(list)
+    exact_groups = defaultdict(int)
+
+    for op_id in operation_ids:
+        exact_groups[op_id] += 1
+        lowered = op_id.lower()
+        if op_id not in case_groups[lowered]:
+            case_groups[lowered].append(op_id)
+
+    collisions = {}
+
+    # Case-insensitive collisions: preserve first-seen operationId as canonical.
+    for lowered in sorted(case_groups.keys()):
+        variants = case_groups[lowered]
+        if len(variants) < 2:
+            continue
+        canonical = variants[0]
+        for idx, variant in enumerate(variants[1:], start=2):
+            key = f"{variant}__case{idx}"
+            while key in collisions:
+                idx += 1
+                key = f"{variant}__case{idx}"
+            collisions[key] = {
+                "operationId": variant,
+                "conflictsWith": canonical,
+                "reason": "case-insensitive key collision",
+            }
+
+    # Exact operationId duplicates (same ID on multiple paths/methods).
+    for op_id in sorted(exact_groups.keys()):
+        count = exact_groups[op_id]
+        if count < 2:
+            continue
+        for idx in range(2, count + 1):
+            key = f"{op_id}__dup{idx}"
+            while key in collisions:
+                idx += 1
+                key = f"{op_id}__dup{idx}"
+            collisions[key] = {
+                "operationId": op_id,
+                "conflictsWith": op_id,
+                "reason": "duplicate operationId",
+            }
+
+    return collisions
 
 
 def main():
@@ -218,7 +274,7 @@ def main():
 
     swagger = load_json(args.swagger)
     paging_registry = load_paging_registry(args.paging_registry)
-    operations, paging = make_catalog(swagger, paging_registry)
+    operations, paging, collisions = make_catalog(swagger, paging_registry)
 
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "operations.json"), "w", encoding="utf-8") as f:
@@ -226,6 +282,9 @@ def main():
 
     with open(os.path.join(args.out, "pagination-map.json"), "w", encoding="utf-8") as f:
         json.dump(paging, f, indent=2)
+
+    with open(os.path.join(args.out, "catalog-collisions.json"), "w", encoding="utf-8") as f:
+        json.dump(collisions, f, indent=2)
 
     with open(os.path.join(args.out, "generated-at.txt"), "w", encoding="utf-8") as f:
         f.write(datetime.now(timezone.utc).isoformat().replace("+00:00", "Z") + "\n")
