@@ -60,3 +60,15 @@ test("redactForLog masks nested secret fields", () => {
   assert.equal((redacted.nested as Record<string, unknown>).access_token, "***redacted***");
   assert.equal((redacted.nested as Record<string, unknown>).ok, true);
 });
+
+
+test("redactForLog scrubs authorization and token-like strings in plain text logs", () => {
+  const redacted = redactForLog(
+    "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc1234567890.def1234567890 and ghp_abcdefghijklmnopqrstuvwxyz12",
+    redactionFields,
+  ) as string;
+
+  assert.ok(redacted.includes("Authorization: Bearer ***redacted***"));
+  assert.ok(!redacted.includes("eyJhbGciOiJI"));
+  assert.ok(!redacted.includes("ghp_abcdefghijklmnopqrstuvwxyz12"));
+});
