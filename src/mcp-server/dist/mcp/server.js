@@ -148,6 +148,9 @@ export function createMcpApp(core) {
         const state = sessions.get(sessionId);
         if (!state)
             return;
+        if (state.closing)
+            return;
+        state.closing = true;
         sessions.delete(sessionId);
         await state.transport.close().catch(() => undefined);
         await state.server.close().catch(() => undefined);
@@ -182,15 +185,18 @@ export function createMcpApp(core) {
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: (newSessionId) => {
-                    sessions.set(newSessionId, { server: mcpServer, transport });
+                    sessions.set(newSessionId, { server: mcpServer, transport, closing: false });
                 },
             });
             transport.onclose = () => {
                 const sid = transport.sessionId;
                 if (sid) {
+                    const state = sessions.get(sid);
+                    if (state) {
+                        state.closing = true;
+                    }
                     sessions.delete(sid);
                 }
-                void mcpServer.close().catch(() => undefined);
             };
             try {
                 await mcpServer.connect(transport);
