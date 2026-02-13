@@ -16,6 +16,17 @@ const DEFAULT_REDACTION_FIELDS = [
   "password",
 ];
 
+const AUTHORIZATION_PATTERN = /\b(authorization\s*:\s*)(bearer|basic)\s+[a-z0-9._~+\/-]+=*/gi;
+const BEARER_PATTERN = /\bbearer\s+[a-z0-9._~+\/-]+=*/gi;
+const TOKEN_LIKE_PATTERN = /\b(?:gh[pousr]_[a-z0-9]{20,}|xox[baprs]-[a-z0-9-]{10,}|eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,})\b/g;
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(AUTHORIZATION_PATTERN, "$1$2 ***redacted***")
+    .replace(BEARER_PATTERN, "Bearer ***redacted***")
+    .replace(TOKEN_LIKE_PATTERN, "***redacted***");
+}
+
 function normalizeYamlList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -103,7 +114,10 @@ export function loadRedactionFields(repoRoot: string): Set<string> {
 
 export function redactForLog(value: unknown, redactionFields: Set<string>): unknown {
   if (value === null || value === undefined) return value;
-  if (typeof value === "string") return value.length > 120 ? `${value.slice(0, 117)}...` : value;
+  if (typeof value === "string") {
+    const redacted = redactSensitiveText(value);
+    return redacted.length > 120 ? `${redacted.slice(0, 117)}...` : redacted;
+  }
   if (typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map((x) => redactForLog(x, redactionFields));
   if (!isPlainObject(value)) return "[non-plain-object]";
@@ -187,4 +201,3 @@ export function summarizeRequest(
 
   return summary;
 }
-
